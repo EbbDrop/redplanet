@@ -1,3 +1,6 @@
+// TODO: Remove this when implementing the SpaceTime
+#![allow(unused_variables, dead_code)]
+
 pub mod change;
 pub mod errors;
 pub mod region;
@@ -50,7 +53,7 @@ pub struct SpaceTime {}
 
 impl SpaceTime {
     /// Get a reference to a certain region to allow reads to that region.
-    pub fn get_region<'a>(&'a self, region: RegionHandle) -> Region<'a> {
+    pub fn get_region(&self, region: RegionHandle) -> Region<'_> {
         Region { space_time: self }
     }
 
@@ -62,7 +65,7 @@ impl SpaceTime {
     /// staring from the past.
     ///
     /// [`remove_future`]: Self::remove_future
-    pub fn get_region_mut<'a>(&'a mut self, region: RegionHandle) -> RegionMut<'a> {
+    pub fn get_region_mut(&mut self, region: RegionHandle) -> RegionMut<'_> {
         RegionMut { space_time: self }
     }
 
@@ -76,7 +79,7 @@ impl SpaceTime {
 
     /// All the changes since the current given step.
     pub fn changes_since_step(&self, id: StepId) -> impl Iterator<Item = Change> {
-        std::iter::once(todo!())
+        None::<Change>.into_iter()
     }
 
     /// Returns `Ok(())` if it is possible to jump to the given step id.

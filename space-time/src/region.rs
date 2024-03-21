@@ -17,7 +17,7 @@ impl<'a> Index<u32> for Region<'a> {
     type Output = u32;
 
     fn index(&self, index: u32) -> &Self::Output {
-        &self.get_ref(index).expect("TODO")
+        self.get_ref(index).expect("TODO")
     }
 }
 

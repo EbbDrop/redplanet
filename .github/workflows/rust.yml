@@ -1,0 +1,41 @@
+name: Rust
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+    - name: Cache Cargo dependencies & build files
+      id: cache-cargo
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+    - name: Format check
+      run: cargo fmt --check --all
+    - name: Clippy
+      run: cargo clippy --no-deps --all --tests -- -Dwarnings
+    - name: Build
+      run: cargo check --all
+    - name: Run tests
+      run: cargo test --all
+    - name: Check docs
+      run: cargo doc --no-deps --all
+      env:
+        RUSTDOCFLAGS: "-D warnings"
