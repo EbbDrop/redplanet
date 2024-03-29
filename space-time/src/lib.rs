@@ -1,12 +1,10 @@
 // TODO: Remove this when implementing the SpaceTime
 #![allow(unused_variables, dead_code)]
 
-pub mod change;
 pub mod errors;
 pub mod region;
 
-use change::Change;
-use errors::{GoToStepIdError, WriteError};
+use errors::WriteError;
 use region::{Region, RegionHandle, RegionMut};
 
 #[derive(Default, Debug)]
@@ -45,7 +43,7 @@ impl SpaceTimeBuilder {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct StepId {}
+pub struct SnapshotId {}
 
 /// An array of `u32`s that can be restored to earlier state.
 #[derive(Debug, Clone)]
@@ -58,54 +56,44 @@ impl SpaceTime {
     }
 
     /// Get a reference to a certain region to allow reads and writes to that region.
-    ///
-    /// # Panic
-    /// Will panic when the current step is in the past and future data exits.
-    /// Call [`remove_future`] before calling this method to change data while
-    /// staring from the past.
-    ///
-    /// [`remove_future`]: Self::remove_future
     pub fn get_region_mut(&mut self, region: RegionHandle) -> RegionMut<'_> {
         RegionMut { space_time: self }
     }
 
-    /// Get the id of the current step.
-    ///
-    /// The returned [`StepId`] can be used to go back to the state the
-    /// [`SpaceTime`] is in right now.
-    pub fn step_id(&mut self) -> StepId {
+    /// Create a new snapshot
+    pub fn make_snapshot(&mut self) -> SnapshotId {
         todo!()
     }
 
-    /// All the changes since the current given step.
-    pub fn changes_since_step(&self, id: StepId) -> impl Iterator<Item = Change> {
-        None::<Change>.into_iter()
-    }
-
-    /// Returns `Ok(())` if it is possible to jump to the given step id.
-    /// Otherwise returns the error [`go_to_step_id`] would give.
+    /// Returns `true` if it is possible to jump to the given snapshot.
     ///
-    /// [`go_to_step_id`]: Self::go_to_step_id
-    pub fn step_id_available(&self, id: StepId) -> Result<(), GoToStepIdError> {
+    /// The only case this can return `false` at the moment if the data
+    /// for the `StepId` has be deleted to save on memory.
+    pub fn snapshot_available(&self, id: SnapshotId) -> bool {
         todo!()
     }
 
-    /// Sets the step id to the given [`StepId`].
+    /// Go to the snapshot with the given [`SnapshotId`].
     ///
-    /// If this function returns an `Err`, the current step is not changed.
-    /// Use [`step_id_available`] to see if it would be possible to use this
-    /// method with a certain [`StepId`].
+    /// If this function returns `false`, the snapshot is not changed.
     ///
-    /// [`step_id_available`]: Self::step_id_available
-    pub fn go_to_step_id(&mut self, id: StepId) -> Result<(), GoToStepIdError> {
+    /// The only case this can return `false` at the moment if the data
+    /// for the `SnapshotId` has be deleted to save on memory.
+    ///
+    /// Use [`snapshot_available`] to see if it would be possible to use this
+    /// method with a certain [`SnapshotId`] without actively changing the
+    /// snapshot.
+    ///
+    /// [`snapshot_available`]: Self::snapshot_available
+    pub fn go_to_snapshot(&mut self, id: SnapshotId) -> bool {
         todo!()
     }
 
-    /// Removes all data for all steps in the future. Allowing a new future
-    /// to be created.
+    /// Removes all data for all snapshots and non deterministic writes
+    /// in the future. Allowing a new future to be created.
     ///
-    /// This will invalidate all the [`StepId`]'s that where created after
-    /// the current one. But [`StepId`]'s created after calling this function
+    /// This will invalidate all the [`SnapshotId`]'s that where created after
+    /// the current one. But [`SnapshotId`]'s created after calling this function
     /// could have the same value.
     pub fn remove_future(&mut self) {
         todo!()
