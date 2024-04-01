@@ -1,101 +1,215 @@
 // TODO: Remove this when implementing the SpaceTime
-#![allow(unused_variables, dead_code)]
+#![allow(unused_variables, dead_code, unreachable_code)]
 
+pub mod allocator;
 pub mod errors;
-pub mod region;
 
-use errors::WriteError;
-use region::{Region, RegionHandle, RegionMut};
+use std::ops::RangeBounds;
 
-#[derive(Default, Debug)]
-pub struct SpaceTimeBuilder {}
+use allocator::{Allocator, ArrayAccessor, ArrayAccessorMut};
+use errors::{InvalidIdError, InvalidSnapshotIdError};
 
-impl SpaceTimeBuilder {
-    pub fn new() -> Self {
-        Self {}
-    }
-
-    pub fn add_region(&mut self, size: u32) -> RegionHandle {
-        todo!()
-    }
-
-    /// Sets up some data to have directly after building the [`SpaceTime`].
-    ///
-    /// The data in `data` will be saved in the given region at the given
-    /// index. With the first word of `data` stored at `index`.
-    ///
-    /// The created [`SpaceTime`] will *not* store any history related to this write.
-    /// And the first step will always contain this data.
-    ///
-    /// A [`WriteError`] will be returned when trying to store data outside of the region.
-    pub fn add_initial_data(
-        &mut self,
-        region: RegionHandle,
-        index: u32,
-        data: &[u32],
-    ) -> Result<(), WriteError> {
-        todo!()
-    }
-
-    pub fn build(self) -> SpaceTime {
-        todo!()
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct SnapshotId {}
-
-/// An array of `u32`s that can be restored to earlier state.
-#[derive(Debug, Clone)]
+/// An [`Allocator`] with snapshotting capabilities.
+#[derive(Debug, Default)]
 pub struct SpaceTime {}
 
+/// Abstract identifier of snapshots in [`SpaceTime`].
+///
+/// A [`SnapshotId`] created by one [`SpaceTime`] should not be used as argument to a method on a
+/// different [`SpaceTime`]. However, doing so will not result in a panic, but rather communicate an
+/// [`InvalidSnapshotIdError`].
+///
+/// [`SnapshotId`]'s can be checked for equality, but this only makes sense if they're created by
+/// the same [`SpaceTime`].
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub struct SnapshotId {}
+
 impl SpaceTime {
-    /// Get a reference to a certain region to allow reads to that region.
-    pub fn get_region(&self, region: RegionHandle) -> Region<'_> {
-        Region { space_time: self }
+    /// Create a new empty [`SpaceTime`].
+    ///
+    /// No snapshots are created, and HEAD is considered dirty ([`Self::head`] will return `None`).
+    pub fn new() -> Self {
+        todo!()
     }
 
-    /// Get a reference to a certain region to allow reads and writes to that region.
-    pub fn get_region_mut(&mut self, region: RegionHandle) -> RegionMut<'_> {
-        RegionMut { space_time: self }
-    }
-
-    /// Create a new snapshot
+    /// Create a new snapshot of HEAD.
+    ///
+    /// To check if it is sensible to create a new snapshot, `head().is_none()` can be used.
+    /// It is allowed to create multiple snapshot without making changes in between.
     pub fn make_snapshot(&mut self) -> SnapshotId {
         todo!()
     }
 
-    /// Returns `true` if it is possible to jump to the given snapshot.
+    /// Invalidate the snapshot, potentially freeing up some space.
     ///
-    /// The only case this can return `false` at the moment if the data
-    /// for the `StepId` has be deleted to save on memory.
-    pub fn snapshot_available(&self, id: SnapshotId) -> bool {
+    /// The `snapshot_id` is invalidated when calling this, it should not be used again.
+    ///
+    /// For safety, snapshot ids are never reused in a single [`SpaceTime`].
+    /// Calling a method with an invalidated snapshot id will cause a panic.
+    pub fn drop_snapshot(&mut self, snapshot_id: SnapshotId) -> Result<(), InvalidSnapshotIdError> {
         todo!()
     }
 
-    /// Go to the snapshot with the given [`SnapshotId`].
+    /// Returns an iterator over all available snapshots in no particular order.
+    pub fn snapshots(&self) -> impl Iterator<Item = SnapshotId> {
+        std::iter::empty() // TODO
+    }
+
+    /// Returns `true` if a snapshot with id `snapshot_id` is available.
     ///
-    /// If this function returns `false`, the snapshot is not changed.
+    /// If the `snapshot_id` is created by this [`SpaceTime`], the only way this returns `false` is
+    /// if [`Self::drop_snapshot`] was called in the past for this `snapshot_id`.
     ///
-    /// The only case this can return `false` at the moment if the data
-    /// for the `SnapshotId` has be deleted to save on memory.
-    ///
-    /// Use [`snapshot_available`] to see if it would be possible to use this
-    /// method with a certain [`SnapshotId`] without actively changing the
-    /// snapshot.
-    ///
-    /// [`snapshot_available`]: Self::snapshot_available
-    pub fn go_to_snapshot(&mut self, id: SnapshotId) -> bool {
+    /// It is allowed to pass a [`SnapshotId`] not created by this [`SpaceTime`], but it is *not*
+    /// guaranteed that `false` will be returned then. That is, it is possible that a snapshot in
+    /// this [`SpaceTime`] has a [`SnapshotId`] equal to the one from another [`SpaceTime`].
+    pub fn has_snapshot(&self, snapshot_id: SnapshotId) -> bool {
         todo!()
     }
 
-    /// Removes all data for all snapshots and non deterministic writes
-    /// in the future. Allowing a new future to be created.
+    /// Returns the id of the checked out snapshot, or `None` if the HEAD is dirty.
     ///
-    /// This will invalidate all the [`SnapshotId`]'s that where created after
-    /// the current one. But [`SnapshotId`]'s created after calling this function
-    /// could have the same value.
-    pub fn remove_future(&mut self) {
+    /// The HEAD is considered dirty if changes were written since the last [`Self::checkout`] or
+    /// [`Self::make_snapshot`].
+    pub fn head(&self) -> Option<SnapshotId> {
         todo!()
+    }
+
+    /// Resets the state of HEAD to a snapshot.
+    ///
+    /// For now we assume all snapshots are stored forever if not explicitly dropped.
+    pub fn checkout(&mut self, snapshot_id: SnapshotId) -> Result<(), InvalidSnapshotIdError> {
+        todo!()
+    }
+}
+
+impl Allocator for SpaceTime {
+    type Id<T> = usize;
+    type ArrayId<T> = usize;
+
+    fn insert<T: Clone>(&mut self, object: T) -> Self::Id<T> {
+        todo!()
+    }
+
+    fn insert_array<T: Copy>(&mut self, object: T, n: usize) -> Self::ArrayId<T> {
+        todo!()
+    }
+
+    /// See [`Allocator::remove`].
+    ///
+    /// If the object is only referenced by HEAD and not by any snapshot, it will be dropped.
+    fn remove<T: Clone>(&mut self, id: Self::Id<T>) -> Result<(), InvalidIdError> {
+        todo!()
+    }
+
+    fn remove_array<T: Copy>(&mut self, id: Self::ArrayId<T>) -> Result<(), InvalidIdError> {
+        todo!()
+    }
+
+    fn pop<T: Clone>(&mut self, id: Self::Id<T>) -> Result<T, InvalidIdError> {
+        todo!()
+    }
+
+    fn get<T: Clone>(&self, id: Self::Id<T>) -> Result<&T, InvalidIdError> {
+        todo!()
+    }
+
+    fn get_array<'a, T: 'a + Copy>(
+        &'a self,
+        id: Self::ArrayId<T>,
+    ) -> Result<impl ArrayAccessor<'a, T>, InvalidIdError> {
+        todo!() as Result<STArrayAccessor, _>
+    }
+
+    fn get_mut<T: Clone>(&mut self, id: Self::Id<T>) -> Result<&mut T, InvalidIdError> {
+        todo!()
+    }
+
+    fn get_array_mut<'a, T: 'a + Copy>(
+        &'a mut self,
+        id: Self::ArrayId<T>,
+    ) -> Result<impl ArrayAccessorMut<'a, T>, InvalidIdError> {
+        todo!() as Result<STArrayAccessorMut, _>
+    }
+}
+
+#[derive(Debug)]
+struct STArrayAccessor<'a> {
+    st: &'a SpaceTime,
+}
+
+impl<'a, T: 'a + Copy> ArrayAccessor<'a, T> for STArrayAccessor<'a> {
+    fn len(&self) -> usize {
+        todo!()
+    }
+
+    fn get(&self, index: usize) -> Option<T> {
+        todo!()
+    }
+
+    fn get_ref(&self, index: usize) -> Option<&'a T> {
+        todo!()
+    }
+
+    fn read(&self, buf: &mut [T], index: usize) -> bool {
+        todo!()
+    }
+
+    fn iter_range<R>(&self, index_range: R) -> Option<impl IntoIterator<Item = &'a T> + 'a>
+    where
+        R: RangeBounds<usize>,
+    {
+        todo!() as Option<&'a [T]>
+    }
+}
+
+#[derive(Debug)]
+struct STArrayAccessorMut<'a> {
+    st: &'a mut SpaceTime,
+}
+
+impl<'a, T: 'a + Copy> ArrayAccessor<'a, T> for STArrayAccessorMut<'a> {
+    fn len(&self) -> usize {
+        todo!()
+    }
+
+    fn get(&self, index: usize) -> Option<T> {
+        todo!()
+    }
+
+    fn get_ref(&self, index: usize) -> Option<&'a T> {
+        todo!()
+    }
+
+    fn read(&self, buf: &mut [T], index: usize) -> bool {
+        todo!()
+    }
+
+    fn iter_range<R>(&self, index_range: R) -> Option<impl IntoIterator<Item = &'a T> + 'a>
+    where
+        R: RangeBounds<usize>,
+    {
+        todo!() as Option<&'a [T]>
+    }
+}
+
+impl<'a, T: 'a + Copy> ArrayAccessorMut<'a, T> for STArrayAccessorMut<'a> {
+    fn get_mut(&self, index: usize) -> Option<&'a mut T> {
+        todo!()
+    }
+
+    fn set(&self, index: usize, value: T) -> bool {
+        todo!()
+    }
+
+    fn write(&self, index: usize, buf: &[T]) -> bool {
+        todo!()
+    }
+
+    fn iter_range_mut<R>(&self, index_range: R) -> Option<impl IntoIterator<Item = &'a mut T> + 'a>
+    where
+        R: RangeBounds<usize>,
+    {
+        todo!() as Option<&'a mut [T]>
     }
 }
