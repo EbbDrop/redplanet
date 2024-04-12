@@ -12,4 +12,5 @@ pub struct InvalidIdError;
 /// Within the context of one [`crate::SpaceTime`], a [`crate::SnapshotId`] can be invalid if it has
 /// never been created by the [`crate::SpaceTime`], or if it has been dropped from the
 /// [`crate::SpaceTime`].
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub struct InvalidSnapshotIdError;
