@@ -3,7 +3,7 @@ use std::{fmt::Debug, ops::RangeBounds};
 use crate::errors::InvalidIdError;
 
 /// Trait for types that provide both access and insertion/removal capabilities.
-pub trait Allocator: Debug {
+pub trait Allocator: Debug + 'static {
     /// Type used to identify objects of type `T`.
     ///
     /// For safety, once an object with an id is removed, that id should never be used again by the
