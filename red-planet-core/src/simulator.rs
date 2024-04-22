@@ -92,6 +92,7 @@ impl Allocator for SimulationAllocator {
 
 /// A simulator can simulate any `Simulatable`.
 /// It provides a full linear simulation history with undo and redo capabilities.
+#[derive(Debug)]
 pub struct Simulator<S: Simulatable<SimulationAllocator>> {
     allocator: SimulationAllocator,
     /// The object that's being simulated.
@@ -201,20 +202,22 @@ impl<S: Simulatable<SimulationAllocator>> Simulator<S> {
     /// // would be better done using:
     /// simulator.step();
     /// ```
-    pub fn step_with<F>(&mut self, name: String, custom_tick: F) -> StepResult
+    pub fn step_with<F, R>(&mut self, name: String, custom_tick: F) -> StepResult<R>
     where
-        F: Fn(&mut SimulationAllocator, &S) + 'static,
+        F: 'static + Fn(&mut SimulationAllocator, &S) -> R,
     {
         if self.is_head_detached() {
             self.clear_forward_history();
         }
 
+        let res = custom_tick(&mut self.allocator, &self.simulatable);
+
         let tick = Tick {
             name,
-            tick: Box::new(custom_tick),
+            tick: Box::new(move |allocator, simulatable| {
+                custom_tick(allocator, simulatable);
+            }),
         };
-
-        (tick.tick)(&mut self.allocator, &self.simulatable);
 
         self.custom_ticks
             .push((self.head.state_index.next_step(), tick));
@@ -225,7 +228,7 @@ impl<S: Simulatable<SimulationAllocator>> Simulator<S> {
             self.make_snapshot();
         }
 
-        StepResult::Ok
+        StepResult::Ok(res)
     }
 
     /// Advance the simulation forward by one tick.
@@ -245,7 +248,7 @@ impl<S: Simulatable<SimulationAllocator>> Simulator<S> {
             self.make_snapshot();
         }
 
-        StepResult::Ok
+        StepResult::Ok(())
     }
 
     /// Replay a previously undone step. Assumes such a step exists, and ignores any snapshots that
@@ -422,8 +425,8 @@ pub trait Event: Debug {
     // TODO
 }
 
-pub enum StepResult {
-    Ok,
+pub enum StepResult<T = ()> {
+    Ok(T),
     Stopped,
 }
 
