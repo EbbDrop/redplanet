@@ -12,7 +12,7 @@ use space_time::allocator::{Allocator, ArrayAccessor, ArrayAccessorMut};
 pub struct Ram<A: Allocator> {
     /// Index in the allocator where all bytes are stored.
     data: A::ArrayId<u8>,
-    /// The highest byte address. Internally we know the range is `0..=max_address`.
+    /// The highest byte address.
     max_address: u32,
 }
 
@@ -46,11 +46,10 @@ impl<A: Allocator> Ram<A> {
         self.max_address as usize + 1
     }
 
-    /// Returns the address range of the continuous region of bytes stored in this RAM unit
+    /// Returns the address range of the continuous region of bytes stored in this RAM unit.
     ///
-    /// Note that it is not guaranteed that `self.range().start() == 0`.
-    ///
-    /// It is guaranteed that `self.range().delta() == (self.len() - 1) as u32`.
+    /// Note that `self.range().start()` will always be `0`, and `self.range().end()` always
+    /// `(self.len() - 1) as u32`. This is merely a convenience function.
     pub fn range(&self) -> AddressRange {
         AddressRange::new(0, self.max_address).unwrap()
     }
