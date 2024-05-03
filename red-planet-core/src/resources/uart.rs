@@ -2,7 +2,6 @@
 
 use crate::bus::{Bus, PureAccessResult};
 use crate::simulator::Simulatable;
-use crate::system_bus::Slave;
 use bitvec::order::Lsb0;
 use bitvec::view::BitView;
 use space_time::allocator::Allocator;
@@ -526,5 +525,3 @@ impl<A: Allocator> Bus<A> for Uart<A> {
         let _ = self.write(allocator, address, buf.first().copied().unwrap_or(0));
     }
 }
-
-impl<A: Allocator> Slave<A> for Uart<A> {}

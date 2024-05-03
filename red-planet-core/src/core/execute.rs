@@ -1,17 +1,17 @@
-use super::memory::{MemoryError, CORE_ENDIAN};
-use crate::bus::Bus;
-use crate::core::{ConnectedCore, Exception, ExecutionResult};
+use super::mmu::{MemoryError, CORE_ENDIAN};
+use crate::core::{Core, Exception, ExecutionResult};
 use crate::instruction::FenceOrderCombination;
 use crate::registers::{Registers, Specifier};
+use crate::system_bus::SystemBus;
 use crate::{Alignment, Allocator};
 
 #[derive(Debug)]
-pub(super) struct Executor<'a, 'c, A: Allocator, B: Bus<A>> {
+pub(super) struct Executor<'a, 'c, A: Allocator, B: SystemBus<A>> {
     pub allocator: &'a mut A,
-    pub core: &'c ConnectedCore<A, B>,
+    pub core: &'c Core<A, B>,
 }
 
-impl<'a, 'c, A: Allocator, B: Bus<A>> Executor<'a, 'c, A, B> {
+impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
     /// Executes an `addi` instruction.
     ///
     /// Corresponds to the assembly instruction `addi dest src immediate`.
@@ -309,7 +309,7 @@ impl<'a, 'c, A: Allocator, B: Bus<A>> Executor<'a, 'c, A, B> {
     pub fn lb(&mut self, dest: Specifier, base: Specifier, offset: i32) -> ExecutionResult {
         self.load_op(dest, base, offset, |this, address| {
             this.core
-                .memory()
+                .mmu()
                 .read_byte(this.allocator, address)
                 .map(|value| value as i8 as u32)
         })
@@ -318,7 +318,7 @@ impl<'a, 'c, A: Allocator, B: Bus<A>> Executor<'a, 'c, A, B> {
     pub fn lbu(&mut self, dest: Specifier, base: Specifier, offset: i32) -> ExecutionResult {
         self.load_op(dest, base, offset, |this, address| {
             this.core
-                .memory()
+                .mmu()
                 .read_byte(this.allocator, address)
                 .map(|value| value as u32)
         })
@@ -327,7 +327,7 @@ impl<'a, 'c, A: Allocator, B: Bus<A>> Executor<'a, 'c, A, B> {
     pub fn lh(&mut self, dest: Specifier, base: Specifier, offset: i32) -> ExecutionResult {
         self.load_op(dest, base, offset, |this, address| {
             this.core
-                .memory()
+                .mmu()
                 .read_halfword::<CORE_ENDIAN>(this.allocator, address)
                 .map(|value| value as i16 as u32)
         })
@@ -336,7 +336,7 @@ impl<'a, 'c, A: Allocator, B: Bus<A>> Executor<'a, 'c, A, B> {
     pub fn lhu(&mut self, dest: Specifier, base: Specifier, offset: i32) -> ExecutionResult {
         self.load_op(dest, base, offset, |this, address| {
             this.core
-                .memory()
+                .mmu()
                 .read_halfword::<CORE_ENDIAN>(this.allocator, address)
                 .map(|value| value as u32)
         })
@@ -345,7 +345,7 @@ impl<'a, 'c, A: Allocator, B: Bus<A>> Executor<'a, 'c, A, B> {
     pub fn lw(&mut self, dest: Specifier, base: Specifier, offset: i32) -> ExecutionResult {
         self.load_op(dest, base, offset, |this, address| {
             this.core
-                .memory()
+                .mmu()
                 .read_word::<CORE_ENDIAN>(this.allocator, address)
         })
     }
@@ -353,7 +353,7 @@ impl<'a, 'c, A: Allocator, B: Bus<A>> Executor<'a, 'c, A, B> {
     pub fn sb(&mut self, src: Specifier, base: Specifier, offset: i32) -> ExecutionResult {
         self.store_op(src, base, offset, |this, address, value| {
             this.core
-                .memory()
+                .mmu()
                 .write_byte(this.allocator, address, value as u8)
         })
     }
@@ -361,7 +361,7 @@ impl<'a, 'c, A: Allocator, B: Bus<A>> Executor<'a, 'c, A, B> {
     pub fn sh(&mut self, src: Specifier, base: Specifier, offset: i32) -> ExecutionResult {
         self.store_op(src, base, offset, |this, address, value| {
             this.core
-                .memory()
+                .mmu()
                 .write_halfword::<CORE_ENDIAN>(this.allocator, address, value as u16)
         })
     }
@@ -369,7 +369,7 @@ impl<'a, 'c, A: Allocator, B: Bus<A>> Executor<'a, 'c, A, B> {
     pub fn sw(&mut self, src: Specifier, base: Specifier, offset: i32) -> ExecutionResult {
         self.store_op(src, base, offset, |this, address, value| {
             this.core
-                .memory()
+                .mmu()
                 .write_word::<CORE_ENDIAN>(this.allocator, address, value)
         })
     }

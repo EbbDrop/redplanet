@@ -1,6 +1,5 @@
 use crate::bus::{Bus, PureAccessResult};
 use crate::simulator::Simulatable;
-use crate::system_bus::Slave;
 use crate::AddressRange;
 use space_time::allocator::{Allocator, ArrayAccessor, ArrayAccessorMut};
 
@@ -127,5 +126,3 @@ impl<A: Allocator> Bus<A> for Ram<A> {
         self.write(allocator, address, buf);
     }
 }
-
-impl<A: Allocator> Slave<A> for Ram<A> {}

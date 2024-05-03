@@ -1,21 +1,20 @@
 //! Provides a simulatable RV32I core implementation.
 
 mod execute;
-mod memory;
+mod mmu;
 
-use crate::bus::Bus;
-use crate::core::memory::MemoryError;
+use crate::core::mmu::MemoryError;
 use crate::cs_registers::CSRegisters;
 use crate::instruction::{
     BranchCondition, Instruction, LoadWidth, RegImmOp, RegRegOp, RegShiftImmOp, StoreWidth,
 };
 use crate::registers::Registers;
 use crate::simulator::Simulatable;
+use crate::system_bus::SystemBus;
 use crate::{Alignment, Allocated, Allocator, Endianness};
 use execute::Executor;
-use memory::{Memory, LITTLE_ENDIAN};
+use mmu::Mmu;
 use std::fmt::Debug;
-use std::ops::Deref;
 
 // NOTE: For now `Default` is derived, but this will probably need to be changed to a custom impl.
 #[derive(Debug, Default, Clone)]
@@ -56,20 +55,22 @@ pub struct Config {
 /// > - A trap, as defined in Section 1.6.
 /// > - Any other event defined by an extension to constitute forward progress.
 #[derive(Debug)]
-pub struct Core<A: Allocator> {
+pub struct Core<A: Allocator, B: SystemBus<A>> {
     config: Config,
     cs_registers: CSRegisters<A>,
     registers: Allocated<A, Registers>,
+    system_bus: B,
 }
 
-impl<A: Allocator> Core<A> {
-    pub fn new(allocator: &mut A, config: Config) -> Self {
+impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
+    pub fn new(allocator: &mut A, system_bus: B, config: Config) -> Self {
         let cs_registers = CSRegisters::new(allocator);
         let registers = Allocated::new(allocator, Registers::new());
         Self {
             config,
             cs_registers,
             registers,
+            system_bus,
         }
     }
 
@@ -107,75 +108,14 @@ impl<A: Allocator> Core<A> {
         todo!()
     }
 
-    pub fn connect<B: Bus<A>>(self, system_bus: B) -> ConnectedCore<A, B> {
-        ConnectedCore {
-            core: self,
-            system_bus,
-        }
-    }
-
-    /// Map a virtual byte address to the corresponding physical byte address.
-    ///
-    /// Helper for [`Memory`].
-    fn translate_address(&self, address: u32) -> u32 {
-        // 1-to-1 mapping for now
-        address
-    }
-}
-
-#[derive(Debug)]
-pub struct ConnectedCore<A: Allocator, B: Bus<A>> {
-    core: Core<A>,
-    system_bus: B,
-}
-
-impl<A: Allocator, B: Bus<A>> Deref for ConnectedCore<A, B> {
-    type Target = Core<A>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.core
-    }
-}
-
-impl<A: Allocator, B: Bus<A>> Simulatable<A> for ConnectedCore<A, B> {
-    fn tick(&self, allocator: &mut A) {
-        let pc = self.core.registers(allocator).pc();
-
-        let raw_instruction = match self.fetch_instruction(allocator, pc) {
-            Ok(raw_instruction) => raw_instruction,
-            Err(_exception) => todo!(),
-        };
-
-        let execution_result = self.execute_raw_instruction(allocator, raw_instruction);
-
-        match execution_result {
-            ExecutionResult::Ok => {}
-            ExecutionResult::Exception(_) => todo!(),
-            ExecutionResult::Interrupt(_) => todo!(),
-        }
-
-        // TODO: update counters
-    }
-
-    fn drop(self, allocator: &mut A) {
-        self.core.drop(allocator);
-    }
-}
-
-impl<A: Allocator, B: Bus<A>> ConnectedCore<A, B> {
-    /// Disconnect from the system bus and return the owned [`Core`].
-    pub fn disconnect(self) -> Core<A> {
-        self.core
-    }
-
     /// Provides an access wrapper around the system bus to address it as memory from this core's
     /// point of view.
     ///
     /// This takes into account the core's current privilege level, its memory mapping (i.e. which
     /// regions can be accessed), its configuration (e.g. whether misaligned memory accesses are
     /// supported), etc.
-    pub fn memory(&self) -> Memory<A, B> {
-        Memory { core: self }
+    pub fn mmu(&self) -> Mmu<A, B> {
+        Mmu { core: self }
     }
 
     /// Execute a single instruction on this core.
@@ -338,22 +278,50 @@ impl<A: Allocator, B: Bus<A>> ConnectedCore<A, B> {
     /// > regardless of memory system endianness. Parcels forming one instruction are stored at
     /// > increasing halfword addresses, with the lowest-addressed parcel holding the
     /// > lowest-numbered bits in the instruction specification.
-    fn fetch_instruction(
-        &self,
-        allocator: &mut A, // TODO: verify that it is ok for instruction fetch to be effectful
-        address: u32,
-    ) -> Result<u32, Exception> {
+    fn fetch_instruction(&self, allocator: &mut A, address: u32) -> Result<u32, Exception> {
         if !Alignment::WORD.is_aligned(address) {
             return Err(Exception::InstructionAddressMisaligned);
         }
-        // Instructions are always stored as little-endian in memory
-        self.memory()
-            .read_word::<LITTLE_ENDIAN>(allocator, address)
+        self.mmu()
+            .fetch_instruction(allocator, address)
             .map_err(|err| match err {
                 MemoryError::MisalignedAccess => Exception::InstructionAddressMisaligned,
                 MemoryError::AccessFault => Exception::InstructionAccessFault,
                 MemoryError::EffectfulReadOnly => unreachable!(),
             })
+    }
+
+    /// Map a virtual byte address to the corresponding physical byte address.
+    ///
+    /// Helper for [`Mmu`].
+    fn translate_address(&self, address: u32) -> u32 {
+        // 1-to-1 mapping for now
+        address
+    }
+}
+
+impl<A: Allocator, B: SystemBus<A>> Simulatable<A> for Core<A, B> {
+    fn tick(&self, allocator: &mut A) {
+        let pc = self.registers(allocator).pc();
+
+        let raw_instruction = match self.fetch_instruction(allocator, pc) {
+            Ok(raw_instruction) => raw_instruction,
+            Err(_exception) => todo!(),
+        };
+
+        let execution_result = self.execute_raw_instruction(allocator, raw_instruction);
+
+        match execution_result {
+            ExecutionResult::Ok => {}
+            ExecutionResult::Exception(_) => todo!(),
+            ExecutionResult::Interrupt(_) => todo!(),
+        }
+
+        // TODO: update counters
+    }
+
+    fn drop(self, allocator: &mut A) {
+        self.drop(allocator);
     }
 }
 

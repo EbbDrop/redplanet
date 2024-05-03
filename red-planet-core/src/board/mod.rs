@@ -1,14 +1,28 @@
 //! Provides a generic board built around the SiFive FE310-G002 SoC.
 
+mod system_bus;
+
 use crate::bus::{Bus, PureAccessResult};
-use crate::core::{Config, ConnectedCore, Core};
+use crate::core::Core;
 use crate::resources::ram::Ram;
 use crate::resources::rom::Rom;
+use crate::resources::uart::Uart;
 use crate::simulator::Simulatable;
-use crate::system_bus::{Slave, SystemBus};
-use crate::{address_range, Allocator};
+use crate::system_bus::AccessType;
+use crate::{two_way_addr_map, Allocator, Endianness};
 use std::ops::Deref;
 use std::rc::Rc;
+use system_bus::{Resource, SystemBus};
+
+#[derive(Debug, Default, Clone)]
+pub struct Config {
+    /// If `true`, the reset vector in MROM will jump to flash, otherwise to the start of RAM.
+    pub boot_to_flash: bool,
+    /// M-mode endianness
+    pub endianness: Endianness,
+    /// Contents of flash (max 64 MiB)
+    pub flash: Vec<u8>,
+}
 
 /// RISC-V hardware platform representing a board built around the SiFive FE310-G002 SoC.
 ///
@@ -21,89 +35,128 @@ use std::rc::Rc;
 #[derive(Debug)]
 pub struct Board<A: Allocator> {
     /// The single core of this board. Multiprocessing is not supported.
-    core: ConnectedCore<A, Interconnect<A>>,
-    /// Interconnect structure
-    system_bus: Interconnect<A>,
-    // Reset Vector ROM (4 KiB, mapped to 0x1000)
-    reset_vector_rom: Rc<Rom<A>>,
-    // Data Tightly Integrated Memory (16 KiB, mapped to 0x8000_0000)
-    dtim: Rc<Ram<A>>,
+    core: Core<A, Interconnect<A>>,
+    system_bus: Rc<SystemBus<A>>,
 }
 
 impl<A: Allocator> Board<A> {
-    pub fn new(allocator: &mut A) -> Self {
-        let reset_vector_rom = Rc::new(
-            Rom::new(
-                allocator,
-                0x1000,
-                &[
-                    0x97, 0x02, 0x00, 0x00, // auipc t0, 0
-                    0x03, 0xa3, 0xc2, 0xff, // lw t1, -4(t0)
-                    0x13, 0x13, 0x33, 0x00, // slli t1, t1, 0x3
-                    0xb3, 0x82, 0x62, 0x00, // add t0, t0, t1
-                    0x83, 0xa2, 0xc2, 0x0f, // lw t0, 252(t0)
-                    0x67, 0x80, 0x02, 0x00, // jr t0
-                ],
-            )
-            .unwrap(),
-        );
+    pub fn new(allocator: &mut A, config: Config) -> Self {
+        let memory_map = two_way_addr_map! {
+            [0x0000_1000, 0x0000_FFFF] <=> Resource::Mrom,
+            [0x1000_0000, 0x1000_00FF] <=> Resource::Uart0,
+            [0x2000_0000, 0x23FF_FFFF] <=> Resource::Flash,
+            [0x8000_0000, 0xFFFF_FFFF] <=> Resource::Dram,
+        };
 
-        let dtim = Rc::new(Ram::new(allocator, 0x4000).unwrap());
+        let mrom_range = memory_map.range_for(&Resource::Mrom).unwrap();
+        let flash_range = memory_map.range_for(&Resource::Flash).unwrap();
+        let dram_range = memory_map.range_for(&Resource::Dram).unwrap();
 
-        let system_bus = Rc::new(
-            SystemBus::new()
-                .with_resource(
-                    Rc::clone(&reset_vector_rom) as Rc<dyn Slave<A>>,
-                    [(address_range![0x1000, 0x1FFF], reset_vector_rom.range())],
-                )
-                .unwrap()
-                .with_resource(
-                    Rc::clone(&dtim) as Rc<dyn Slave<A>>,
-                    [(address_range![0x8000_0000, 0x8000_3FFF], dtim.range())],
-                )
-                .unwrap(),
-        );
+        let start_address: u32 = if config.boot_to_flash {
+            flash_range.start()
+        } else {
+            dram_range.start()
+        };
+
+        let reset_vector = {
+            let s: [u8; 4] = match config.endianness {
+                Endianness::LE => start_address.to_le_bytes(),
+                Endianness::BE => start_address.to_be_bytes(),
+            };
+            [
+                0x97, 0x02, 0x00, 0x00, // auipc  t0, 0x0
+                0x73, 0x25, 0x40, 0xf1, // csrr   a0, mhartid
+                0x83, 0xa2, 0x82, 0x01, // lw     t0, 16(t0)
+                0x67, 0x80, 0x02, 0x00, // jr     t0
+                s[0], s[1], s[2], s[3], // .word start_address
+            ]
+        };
+
+        let mrom = Rom::new(allocator, mrom_range.size().unwrap(), &reset_vector).unwrap();
+
+        let flash = Rom::new(allocator, flash_range.size().unwrap(), &config.flash).unwrap();
+
+        let dram = Ram::new(allocator, dram_range.size().unwrap()).unwrap();
+
+        let uart0 = Uart::new(allocator);
+
+        let system_bus = Rc::new(SystemBus {
+            memory_map,
+            mrom,
+            uart0,
+            flash,
+            dram,
+        });
 
         let core = Core::new(
             allocator,
-            Config {
-                // The FE310-G002 does not support misaligned accesses, but traps instead requiring
-                // software emulation. We diverge from the spec and directly support misaligned
-                // access in our emulated hardware.
+            Rc::clone(&system_bus),
+            crate::core::Config {
                 support_misaligned_memory_access: true,
-                reset_vector: 0x1004,
+                reset_vector: mrom_range.start(),
             },
         );
-        let core = core.connect(system_bus.clone());
 
-        Self {
-            core,
-            reset_vector_rom,
-            dtim,
-            system_bus,
-        }
+        Self { core, system_bus }
     }
 
-    pub fn core(&self) -> &ConnectedCore<A, impl Bus<A>> {
+    pub fn core(&self) -> &Core<A, impl crate::system_bus::SystemBus<A>> {
         &self.core
     }
 
-    pub fn system_bus(&self) -> &SystemBus<A> {
-        &self.system_bus
+    pub fn mrom(&self) -> &Rom<A> {
+        &self.system_bus.mrom
     }
 
-    pub fn reset_vector_rom(&self) -> &Rom<A> {
-        &self.reset_vector_rom
+    pub fn flash(&self) -> &Rom<A> {
+        &self.system_bus.flash
     }
 
-    pub fn dtim(&self) -> &Ram<A> {
-        &self.dtim
+    pub fn dram(&self) -> &Ram<A> {
+        &self.system_bus.dram
+    }
+
+    pub fn uart0(&self) -> &Uart<A> {
+        &self.system_bus.uart0
     }
 
     /// Force board back to its reset state.
     pub fn reset(&self, allocator: &mut A) {
         self.core.reset(allocator);
-        self.dtim.reset(allocator);
+        self.system_bus.dram.reset(allocator);
+        self.system_bus.uart0.reset(allocator);
+    }
+
+    /// Write a byte buffer into the physical address space.
+    ///
+    /// Bytes written to vacant, read-only, or I/O regions are ignored.
+    pub fn load_physical(&self, allocator: &mut A, base_address: u32, buf: &[u8]) {
+        let memory_map = &self.system_bus.memory_map;
+        let mut next_address = Some(base_address);
+        while let Some(address) = next_address {
+            let (range, resource) = memory_map.range_value(address);
+
+            next_address = range.end().checked_add(1);
+
+            let Some(resource) = resource else {
+                continue;
+            };
+
+            match resource {
+                Resource::Dram => {
+                    const_assert!(usize::BITS >= 32);
+                    let slice_start = (address - base_address) as usize;
+                    let slice_end = (range.end() - base_address) as usize;
+                    let slice = &buf[slice_start..=slice_end];
+                    self.system_bus.write(allocator, address, slice);
+                }
+                // Skip read-only
+                Resource::Mrom => {}
+                Resource::Flash => {}
+                // Skip MMIO
+                Resource::Uart0 => {}
+            }
+        }
     }
 }
 
@@ -117,7 +170,6 @@ impl<A: Allocator> Simulatable<A> for Board<A> {
     }
 }
 
-// TODO: In the past this was a Rc<RefCell<SystemBus<A>>>, we might need that back in the future.
 type Interconnect<A> = Rc<SystemBus<A>>;
 
 impl<A: Allocator> Bus<A> for Interconnect<A> {
@@ -131,5 +183,11 @@ impl<A: Allocator> Bus<A> for Interconnect<A> {
 
     fn write(&self, allocator: &mut A, address: u32, buf: &[u8]) {
         self.deref().write(allocator, address, buf)
+    }
+}
+
+impl<A: Allocator> crate::system_bus::SystemBus<A> for Interconnect<A> {
+    fn accepts(&self, address: u32, size: usize, access_type: AccessType) -> bool {
+        self.deref().accepts(address, size, access_type)
     }
 }

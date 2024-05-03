@@ -1,5 +1,6 @@
-use super::ConnectedCore;
-use crate::bus::{Bus, PureAccessError};
+use super::Core;
+use crate::bus::PureAccessError;
+use crate::system_bus::{AccessType, SystemBus};
 use crate::{Alignment, Allocator, Endianness};
 use thiserror::Error;
 
@@ -16,7 +17,7 @@ macro_rules! access_fns {
                 address: u32,
             ) -> Result<$u, MemoryError> {
                 let mut buf = [0u8; std::mem::size_of::<$u>()];
-                self.read(&mut buf, allocator, address).map(|()|
+                self.read(&mut buf, allocator, address, false).map(|()|
                     match E {
                         LITTLE_ENDIAN => $u::from_le_bytes(buf),
                         BIG_ENDIAN => $u::from_be_bytes(buf),
@@ -42,7 +43,7 @@ macro_rules! access_fns {
                 address: u32,
             ) -> Result<$u, MemoryError> {
                 let mut buf = [0u8; std::mem::size_of::<$u>()];
-                self.read_pure(&mut buf, allocator, address).map(|()|
+                self.read_pure(&mut buf, allocator, address, false).map(|()|
                     match E {
                         LITTLE_ENDIAN => $u::from_le_bytes(buf),
                         BIG_ENDIAN => $u::from_be_bytes(buf),
@@ -100,44 +101,20 @@ pub const BIG_ENDIAN: MemOpEndianness = 2;
 /// regions can be accessed), its configuration (e.g. whether misaligned memory accesses are
 /// supported), etc.
 #[derive(Debug, Clone)]
-pub struct Memory<'c, A: Allocator, B: Bus<A>> {
-    pub(super) core: &'c ConnectedCore<A, B>,
+pub struct Mmu<'c, A: Allocator, B: SystemBus<A>> {
+    pub(super) core: &'c Core<A, B>,
 }
 
-impl<'c, A: Allocator, B: Bus<A>> Memory<'c, A, B> {
-    pub fn read(&self, buf: &mut [u8], allocator: &mut A, address: u32) -> Result<(), MemoryError> {
-        let physical_address = self.access(address, buf.len())?;
-        self.core.system_bus.read(buf, allocator, physical_address);
-        Ok(())
-    }
-
-    pub fn read_pure(
-        &self,
-        buf: &mut [u8],
-        allocator: &A,
-        address: u32,
-    ) -> Result<(), MemoryError> {
-        let physical_address = self.access(address, buf.len())?;
-        self.core
-            .system_bus
-            .read_pure(buf, allocator, physical_address)
-            .map_err(|_: PureAccessError| MemoryError::EffectfulReadOnly)
-    }
-
-    pub fn write(&self, allocator: &mut A, address: u32, buf: &[u8]) -> Result<(), MemoryError> {
-        let physical_address = self.access(address, buf.len())?;
-        self.core.system_bus.write(allocator, physical_address, buf);
-        Ok(())
-    }
-
+impl<'c, A: Allocator, B: SystemBus<A>> Mmu<'c, A, B> {
     pub fn read_byte(&self, allocator: &mut A, address: u32) -> Result<u8, MemoryError> {
         let mut buf = [0];
-        self.read(&mut buf, allocator, address).map(|()| buf[0])
+        self.read(&mut buf, allocator, address, false)
+            .map(|()| buf[0])
     }
 
     pub fn read_byte_pure(&self, allocator: &A, address: u32) -> Result<u8, MemoryError> {
         let mut buf = [0];
-        self.read_pure(&mut buf, allocator, address)
+        self.read_pure(&mut buf, allocator, address, false)
             .map(|()| buf[0])
     }
 
@@ -157,25 +134,94 @@ impl<'c, A: Allocator, B: Bus<A>> Memory<'c, A, B> {
         read_quadword, read_quadword_pure, write_quadword => u128,
     }
 
+    /// Reads a naturally-aligned 32-bit little-endian word from memory.
+    ///
+    /// > The base RISC-V ISA has fixed-length 32-bit instructions that must be naturally aligned on
+    /// > 32-bit boundaries.
+    ///
+    /// > Instructions are stored in memory as a sequence of 16-bit little-endian parcels,
+    /// > regardless of memory system endianness. Parcels forming one instruction are stored at
+    /// > increasing halfword addresses, with the lowest-addressed parcel holding the
+    /// > lowest-numbered bits in the instruction specification.
+    pub fn fetch_instruction(&self, allocator: &mut A, address: u32) -> Result<u32, MemoryError> {
+        if !Alignment::WORD.is_aligned(address) {
+            return Err(MemoryError::MisalignedAccess);
+        }
+        let mut buf = [0u8; 4];
+        self.read(&mut buf, allocator, address, true)
+            .map(|()| u32::from_le_bytes(buf))
+    }
+
+    fn read(
+        &self,
+        buf: &mut [u8],
+        allocator: &mut A,
+        address: u32,
+        execute: bool,
+    ) -> Result<(), MemoryError> {
+        let access_type = match execute {
+            true => AccessType::Execute,
+            false => AccessType::Read,
+        };
+        let physical_address = self.access(address, buf.len(), access_type)?;
+        self.core.system_bus.read(buf, allocator, physical_address);
+        Ok(())
+    }
+
+    fn read_pure(
+        &self,
+        buf: &mut [u8],
+        allocator: &A,
+        address: u32,
+        execute: bool,
+    ) -> Result<(), MemoryError> {
+        let access_type = match execute {
+            true => AccessType::Execute,
+            false => AccessType::Read,
+        };
+        let physical_address = self.access(address, buf.len(), access_type)?;
+        self.core
+            .system_bus
+            .read_pure(buf, allocator, physical_address)
+            .map_err(|_: PureAccessError| MemoryError::EffectfulReadOnly)
+    }
+
+    fn write(&self, allocator: &mut A, address: u32, buf: &[u8]) -> Result<(), MemoryError> {
+        let physical_address = self.access(address, buf.len(), AccessType::Write)?;
+        self.core.system_bus.write(allocator, physical_address, buf);
+        Ok(())
+    }
+
     /// Performs the necessary checks for an at `address` of `size` bytes.
     /// Translates the address from virtual to physical.
-    fn access(&self, address: u32, size: usize) -> Result<u32, MemoryError> {
+    fn access(
+        &self,
+        address: u32,
+        size: usize,
+        access_type: AccessType,
+    ) -> Result<u32, MemoryError> {
         let size = u32::try_from(size).map_err(|_| MemoryError::AccessFault)?;
 
         if !self.core.config.support_misaligned_memory_access
             && !Alignment::natural_for_size(size)
                 .map(|alignment| alignment.is_aligned(address))
                 // If `size` is not a power of two, then the access is always considered unaligned
-                // TODO: maybe `Memory::read` and `Memory::write` shouldn't be exposed, then this
-                //       could never happen
                 .unwrap_or(false)
         {
             return Err(MemoryError::MisalignedAccess);
         }
 
-        // TODO: address translation must be done here, as the bounds checking on the range might
-        //       cause access errors
-        Ok(self.core.translate_address(address))
+        let physical_address = self.core.translate_address(address);
+
+        if self
+            .core
+            .system_bus
+            .accepts(physical_address, size as usize, access_type)
+        {
+            Ok(physical_address)
+        } else {
+            Err(MemoryError::AccessFault)
+        }
     }
 }
 

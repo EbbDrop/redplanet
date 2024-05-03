@@ -6,9 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-any_cmp = "0.4.1"
 bitvec = "1.0.1"
-rangemap = "1.5.1"
 space-time = { path = "../space-time" }
 static_assertions = "1.1.0"
 thiserror = "1.0.59"

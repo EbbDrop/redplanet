@@ -117,6 +117,14 @@ impl AddressRange {
         self.end - self.start
     }
 
+    /// Returns the size of this address range if it is representable by a `usize`, or `None`
+    /// otherwise.
+    pub fn size(self) -> Option<usize> {
+        usize::try_from(self.delta())
+            .ok()
+            .and_then(|n| n.checked_add(1))
+    }
+
     /// Compare the size of this address range to another.
     pub fn cmp_size(self, other: Self) -> Ordering {
         // Since this is a comparison, it doesn't matter that we're comparing "size - 1" of both

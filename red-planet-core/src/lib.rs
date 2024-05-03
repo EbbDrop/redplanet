@@ -4,6 +4,7 @@ extern crate static_assertions;
 use std::cmp::Ordering;
 use thiserror::Error;
 
+pub mod address_map;
 pub mod address_range;
 pub mod board;
 pub mod bus;
@@ -13,7 +14,7 @@ pub mod instruction;
 pub mod registers;
 pub mod resources;
 pub mod simulator;
-mod system_bus;
+pub mod system_bus;
 
 // Re-export Allocator trait so dependants don't need to include space-time as a dependency
 /// Trait for types that can store state of simulated components.

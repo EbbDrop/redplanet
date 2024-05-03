@@ -1,6 +1,5 @@
 use crate::bus::{Bus, PureAccessResult};
 use crate::simulator::Simulatable;
-use crate::system_bus::Slave;
 use crate::AddressRange;
 use space_time::allocator::{Allocator, ArrayAccessor, ArrayAccessorMut};
 
@@ -122,5 +121,3 @@ impl<A: Allocator> Bus<A> for Rom<A> {
     /// Writes are always ignored.
     fn write(&self, _allocator: &mut A, _address: u32, _buf: &[u8]) {}
 }
-
-impl<A: Allocator> Slave<A> for Rom<A> {}
