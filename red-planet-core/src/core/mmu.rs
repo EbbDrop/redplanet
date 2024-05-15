@@ -1,5 +1,4 @@
 use super::Core;
-use crate::bus::PureAccessError;
 use crate::system_bus::{AccessType, SystemBus};
 use crate::{Alignment, Allocator, Endianness};
 use thiserror::Error;
@@ -43,7 +42,7 @@ macro_rules! access_fns {
                 address: u32,
             ) -> Result<$u, MemoryError> {
                 let mut buf = [0u8; std::mem::size_of::<$u>()];
-                self.read_pure(&mut buf, allocator, address, false).map(|()|
+                self.read_debug(&mut buf, allocator, address, false).map(|()|
                     match E {
                         LITTLE_ENDIAN => $u::from_le_bytes(buf),
                         BIG_ENDIAN => $u::from_be_bytes(buf),
@@ -114,7 +113,7 @@ impl<'c, A: Allocator, B: SystemBus<A>> Mmu<'c, A, B> {
 
     pub fn read_byte_pure(&self, allocator: &A, address: u32) -> Result<u8, MemoryError> {
         let mut buf = [0];
-        self.read_pure(&mut buf, allocator, address, false)
+        self.read_debug(&mut buf, allocator, address, false)
             .map(|()| buf[0])
     }
 
@@ -168,7 +167,7 @@ impl<'c, A: Allocator, B: SystemBus<A>> Mmu<'c, A, B> {
         Ok(())
     }
 
-    fn read_pure(
+    fn read_debug(
         &self,
         buf: &mut [u8],
         allocator: &A,
@@ -182,8 +181,8 @@ impl<'c, A: Allocator, B: SystemBus<A>> Mmu<'c, A, B> {
         let physical_address = self.access(address, buf.len(), access_type)?;
         self.core
             .system_bus
-            .read_pure(buf, allocator, physical_address)
-            .map_err(|_: PureAccessError| MemoryError::EffectfulReadOnly)
+            .read_debug(buf, allocator, physical_address);
+        Ok(())
     }
 
     fn write(&self, allocator: &mut A, address: u32, buf: &[u8]) -> Result<(), MemoryError> {

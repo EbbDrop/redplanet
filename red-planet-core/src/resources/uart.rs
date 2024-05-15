@@ -1,6 +1,6 @@
 //! Implementation of an UART16550A as a simulatable device.
 
-use crate::bus::{Bus, PureAccessResult};
+use crate::bus::Bus;
 use crate::simulator::Simulatable;
 use bitvec::order::Lsb0;
 use bitvec::view::BitView;
@@ -492,14 +492,14 @@ impl<A: Allocator> Bus<A> for Uart<A> {
         }
     }
 
-    /// See [`Bus::read_pure`].
+    /// See [`Bus::read_debug`].
     ///
     /// Registers are mapped to 4-byte-aligned addresses. Addresses are rounded down to the
     /// nearest 4-byte-aligned address. The address space is circular 8-bit.
     ///
     /// Only the first byte (if `buf.len() >= 1`) will be updated. Invalid reads will cause that
     /// first byte to have an undefined value. The other bytes are always left untouched.
-    fn read_pure(&self, buf: &mut [u8], allocator: &A, address: u32) -> PureAccessResult {
+    fn read_debug(&self, buf: &mut [u8], allocator: &A, address: u32) {
         let address = (address >> 2) as u8;
         match self.read_pure(allocator, address) {
             Ok(value) => {
@@ -510,7 +510,6 @@ impl<A: Allocator> Bus<A> for Uart<A> {
             Err(ReadError::AddressInvalid(_)) => {}
             Err(ReadError::WriteOnly(_)) => {}
         }
-        Ok(())
     }
 
     /// See [`Bus::write`].

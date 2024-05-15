@@ -2,7 +2,6 @@
 
 use crate::Allocator;
 use std::fmt::Debug;
-use thiserror::Error;
 
 /// A generalization of a TileLink-like bus interface, without the hardware details.
 ///
@@ -36,7 +35,7 @@ use thiserror::Error;
 /// be preserved, i.e. only the simulated state may become undefined, not the simulating entity
 /// itself. Note that an access must still remain deterministic, that is, if the same access is
 /// performed twice from the same undefined state, the resulting states should be the same.
-/// In particular, any number of consecutive [`read_pure`](Self::read_pure)s should always alter
+/// In particular, any number of consecutive [`read_debug`](Self::read_debug)s should always alter
 /// the passed `buf` in the same way. Also note that reads cannot rely on anything in the `buf`,
 /// meaning two identical reads on the same state, but with `buf`s containing different values,
 /// should behave the same. In essence, the determinism must only rely on `allocator`, `address`,
@@ -62,15 +61,15 @@ pub trait Bus<A: Allocator>: Debug {
     /// Values should generally be serialized in little-endian byte order.
     fn read(&self, buf: &mut [u8], allocator: &mut A, address: u32);
 
-    /// Request an effect-free read for `address` with size `buf.len()`, writing the result to
-    /// `buf`.
+    /// Perform a debug read for `address` with size `buf.len()`, writing the result to `buf`.
     ///
-    /// If the read is cannot be performed effect-free, a [`PureAccessError`] is returned.
+    /// The value written to `buf` should match what [`Bus::read`] would do as closely as possible,
+    /// but without mutating any state (hence `allocator` is an immutable reference).
     ///
-    /// This differs from [`Bus::read`] in that this is guaranteed not to mutate any state (hence it
-    /// only requires immutable access to the allocator), and consequently that this will not cause
-    /// any side effects.
-    fn read_pure(&self, buf: &mut [u8], allocator: &A, address: u32) -> PureAccessResult;
+    /// Note that the term "debug" here should not be confused with the "debug" behavior of
+    /// [`std::fmt::Debug`]. It is not used for debugging the host Rust application, but rather for
+    /// the "debugging" process of the end user from within that application.
+    fn read_debug(&self, buf: &mut [u8], allocator: &A, address: u32);
 
     /// Invoke a write access for `address` with size `buf.len()`, reading the data from `buf`.
     ///
@@ -80,11 +79,3 @@ pub trait Bus<A: Allocator>: Debug {
     /// Values are generally deserialized in little-endian byte order.
     fn write(&self, allocator: &mut A, address: u32, buf: &[u8]);
 }
-
-pub type PureAccessResult = Result<(), PureAccessError>;
-
-/// Attempt to request a pure read for an `(address, size)` pair that only supports effectful
-/// reads.
-#[derive(Error, Debug, Clone)]
-#[error("cannot read effect-free")]
-pub struct PureAccessError;

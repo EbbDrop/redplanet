@@ -2,7 +2,7 @@
 
 mod system_bus;
 
-use crate::bus::{Bus, PureAccessResult};
+use crate::bus::Bus;
 use crate::core::Core;
 use crate::resources::ram::Ram;
 use crate::resources::rom::Rom;
@@ -189,8 +189,8 @@ impl<A: Allocator> Bus<A> for Interconnect<A> {
         self.deref().read(buf, allocator, address)
     }
 
-    fn read_pure(&self, buf: &mut [u8], allocator: &A, address: u32) -> PureAccessResult {
-        self.deref().read_pure(buf, allocator, address)
+    fn read_debug(&self, buf: &mut [u8], allocator: &A, address: u32) {
+        self.deref().read_debug(buf, allocator, address)
     }
 
     fn write(&self, allocator: &mut A, address: u32, buf: &[u8]) {

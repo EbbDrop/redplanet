@@ -1,5 +1,5 @@
 use crate::address_map::TwoWayAddressMap;
-use crate::bus::{Bus, PureAccessResult};
+use crate::bus::Bus;
 use crate::resources::ram::Ram;
 use crate::resources::rom::Rom;
 use crate::resources::uart::Uart;
@@ -92,13 +92,11 @@ impl<A: Allocator> Bus<A> for SystemBus<A> {
         }
     }
 
-    fn read_pure(&self, buf: &mut [u8], allocator: &A, address: u32) -> PureAccessResult {
+    fn read_debug(&self, buf: &mut [u8], allocator: &A, address: u32) {
         // If no region is being accessed, or the access is not valid, nothing happens.
         if let Some((resource, mapped_address)) = self.check_access(address, buf.len()) {
             self.bus_of(resource)
-                .read_pure(buf, allocator, mapped_address)
-        } else {
-            Ok(())
+                .read_debug(buf, allocator, mapped_address)
         }
     }
 

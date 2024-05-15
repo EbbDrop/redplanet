@@ -1,4 +1,4 @@
-use crate::bus::{Bus, PureAccessResult};
+use crate::bus::Bus;
 use crate::simulator::Simulatable;
 use crate::AddressRange;
 use space_time::allocator::{Allocator, ArrayAccessor, ArrayAccessorMut};
@@ -114,12 +114,8 @@ impl<A: Allocator> Bus<A> for Ram<A> {
         self.read(buf, allocator, address);
     }
 
-    /// See [`Bus::read_pure`].
-    ///
-    /// Reads are always effect-free, so this never fails.
-    fn read_pure(&self, buf: &mut [u8], allocator: &A, address: u32) -> PureAccessResult {
+    fn read_debug(&self, buf: &mut [u8], allocator: &A, address: u32) {
         self.read(buf, allocator, address);
-        Ok(())
     }
 
     fn write(&self, allocator: &mut A, address: u32, buf: &[u8]) {
