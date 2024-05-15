@@ -1,6 +1,6 @@
 //! Provides a simulatable RV32I core implementation.
 
-pub mod csr_specifier;
+pub mod csr;
 mod execute;
 mod mmu;
 
@@ -17,7 +17,7 @@ use mmu::Mmu;
 use std::fmt::Debug;
 use thiserror::Error;
 
-pub use csr_specifier::CsrSpecifier;
+pub use csr::CsrSpecifier;
 
 // NOTE: For now `Default` is derived, but this will probably need to be changed to a custom impl.
 #[derive(Debug, Default, Clone)]
@@ -191,7 +191,7 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
     ///
     /// `privilege_level` indicates at what privilege level the read is performed. If the CSR that
     /// is being read requires a higher privilege level (see
-    /// [`csr_specifier::required_privilege_level`]), then an [`CsrAccessError::Privileged`] will be
+    /// [`csr::required_privilege_level`]), then an [`CsrAccessError::Privileged`] will be
     /// given.
     pub fn read_csr(
         &self,
@@ -201,25 +201,25 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
     ) -> Result<u32, CsrAccessError> {
         self.check_csr_access(allocator, specifier, privilege_level)?;
         match specifier {
-            csr_specifier::CYCLE
-            | csr_specifier::TIME
-            | csr_specifier::INSTRET
-            | csr_specifier::HPMCOUNTER3..=csr_specifier::HPMCOUNTER31 => {
-                let offset = specifier as usize - csr_specifier::CYCLE as usize;
+            csr::CYCLE
+            | csr::TIME
+            | csr::INSTRET
+            | csr::HPMCOUNTER3..=csr::HPMCOUNTER31 => {
+                let offset = specifier as usize - csr::CYCLE as usize;
                 Ok(self.counters.get(allocator)[offset] as u32)
             }
-            csr_specifier::CYCLEH
-            | csr_specifier::TIMEH
-            | csr_specifier::INSTRETH
-            | csr_specifier::HPMCOUNTER3H..=csr_specifier::HPMCOUNTER31H => {
-                let offset = specifier as usize - csr_specifier::CYCLEH as usize;
+            csr::CYCLEH
+            | csr::TIMEH
+            | csr::INSTRETH
+            | csr::HPMCOUNTER3H..=csr::HPMCOUNTER31H => {
+                let offset = specifier as usize - csr::CYCLEH as usize;
                 Ok((self.counters.get(allocator)[offset] >> 32) as u32)
             }
-            csr_specifier::MISA => Ok(Self::MISA),
-            csr_specifier::MVENDORID => Ok(Self::MVENDORID),
-            csr_specifier::MARCHID => Ok(Self::MARCHID),
-            csr_specifier::MIMPID => Ok(Self::MIMPID),
-            csr_specifier::MHARTID => Ok(self.config.hart_id),
+            csr::MISA => Ok(Self::MISA),
+            csr::MVENDORID => Ok(Self::MVENDORID),
+            csr::MARCHID => Ok(Self::MARCHID),
+            csr::MIMPID => Ok(Self::MIMPID),
+            csr::MHARTID => Ok(self.config.hart_id),
             _ => todo!(),
         }
     }
@@ -234,16 +234,16 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
     ) -> Result<(), CsrWriteError> {
         self.check_csr_access(allocator, specifier, privilege_level)
             .map_err(CsrWriteError::AccessError)?;
-        if csr_specifier::is_read_only(specifier) {
+        if csr::is_read_only(specifier) {
             return Err(CsrWriteError::WriteToReadOnly);
         }
         match specifier {
             // The machine info registers are read-only WARL in this implementation.
-            csr_specifier::MISA => Ok(()),
-            csr_specifier::MVENDORID => Ok(()),
-            csr_specifier::MARCHID => Ok(()),
-            csr_specifier::MIMPID => Ok(()),
-            csr_specifier::MHARTID => Ok(()),
+            csr::MISA => Ok(()),
+            csr::MVENDORID => Ok(()),
+            csr::MARCHID => Ok(()),
+            csr::MIMPID => Ok(()),
+            csr::MHARTID => Ok(()),
             _ => todo!(),
         }
     }
@@ -254,10 +254,10 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
         specifier: CsrSpecifier,
         privilege_level: PrivilegeLevel,
     ) -> Result<(), CsrAccessError> {
-        if !csr_specifier::is_valid(specifier) {
+        if !csr::is_valid(specifier) {
             return Err(CsrAccessError::CsrUnsupported(specifier));
         }
-        let required_level = csr_specifier::required_privilege_level(specifier);
+        let required_level = csr::required_privilege_level(specifier);
         if privilege_level < required_level {
             return Err(CsrAccessError::Privileged {
                 specifier,
