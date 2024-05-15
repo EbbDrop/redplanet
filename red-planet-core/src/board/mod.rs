@@ -14,7 +14,7 @@ use std::ops::Deref;
 use std::rc::Rc;
 use system_bus::{Resource, SystemBus};
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 pub struct Config {
     /// If `true`, the reset vector in MROM will jump to flash, otherwise to the start of RAM.
     pub boot_to_flash: bool,
@@ -22,6 +22,16 @@ pub struct Config {
     pub endianness: Endianness,
     /// Contents of flash (max 64 MiB)
     pub flash: Vec<u8>,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            boot_to_flash: false,
+            endianness: Endianness::LE,
+            flash: Vec::default(),
+        }
+    }
 }
 
 /// RISC-V hardware platform representing a board built around the SiFive FE310-G002 SoC.

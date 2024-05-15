@@ -247,15 +247,10 @@ impl Alignment {
     }
 }
 
-/// The two possible endianness configurations.
-///
-/// Note that if any endianness will do, [`Endianness::default()`] should be used.
-/// [`Endianness::default()`] is guaranteed to be portable (so it's not the host's native
-/// endianness, but rather an arbitrary fixed choice).
-#[derive(Debug, Default, Copy, Clone, Eq, PartialEq)]
+/// Sum type for the two possible byte orders: big-endian or little-endian.
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum Endianness {
     /// Little-endian (least significant byte at lowest address)
-    #[default]
     LE,
     /// Big-endian (most significant byte at lowest address)
     BE,
