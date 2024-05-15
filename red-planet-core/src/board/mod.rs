@@ -92,6 +92,8 @@ impl<A: Allocator> Board<A> {
             allocator,
             Rc::clone(&system_bus),
             crate::core::Config {
+                // At least one Hart must have ID 0 according to the spec.
+                hart_id: 0,
                 support_misaligned_memory_access: true,
                 reset_vector: mrom_range.start(),
             },

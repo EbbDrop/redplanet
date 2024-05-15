@@ -1,4 +1,4 @@
-use crate::cs_registers::CsrSpecifier;
+use crate::core::CsrSpecifier;
 use crate::registers::Specifier;
 use thiserror::Error;
 

@@ -1,24 +1,33 @@
 //! Provides a simulatable RV32I core implementation.
 
+pub mod csr_specifier;
 mod execute;
 mod mmu;
 
 use crate::core::mmu::MemoryError;
-use crate::cs_registers::CSRegisters;
 use crate::instruction::{
     BranchCondition, CsrOp, Instruction, LoadWidth, RegImmOp, RegRegOp, RegShiftImmOp, StoreWidth,
 };
 use crate::registers::Registers;
 use crate::simulator::Simulatable;
 use crate::system_bus::SystemBus;
-use crate::{Alignment, Allocated, Allocator, Endianness, PrivilegeLevel};
+use crate::{Alignment, Allocated, Allocator, Endianness, PrivilegeLevel, RawPrivilegeLevel};
 use execute::Executor;
 use mmu::Mmu;
 use std::fmt::Debug;
+use thiserror::Error;
+
+pub use csr_specifier::CsrSpecifier;
 
 // NOTE: For now `Default` is derived, but this will probably need to be changed to a custom impl.
 #[derive(Debug, Default, Clone)]
 pub struct Config {
+    /// > The mhartid CSR is an MXLEN-bit read-only register containing the integer ID of the
+    /// > hardware thread running the code. This register must be readable in any implementation.
+    /// > Hart IDs might not necessarily be numbered contiguously in a multiprocessor system, but at
+    /// > least one hart must have a hart ID of zero. Hart IDs must be unique within the execution
+    /// > environment.
+    pub hart_id: u32,
     /// If `true`, non-naturally-aligned memory accesses are supported.
     /// If `false`, they will generate an address-misaligned exception.
     pub support_misaligned_memory_access: bool,
@@ -54,23 +63,93 @@ pub struct Config {
 /// > - The retirement of an instruction.
 /// > - A trap, as defined in Section 1.6.
 /// > - Any other event defined by an extension to constitute forward progress.
+///
+/// # Control and Status Registers
+///
+/// This structure also contains the CSRs as per the Zicsr extension.
+///
+/// > RISC-V defines a separate address space of 4096 Control and Status registers associated with
+/// > each hart.
+///
+/// > The standard RISC-V ISA sets aside a 12-bit encoding space (csr\[11:0]) for up to 4,096 CSRs.
+/// > By convention, the upper 4 bits of the CSR address (csr\[11:8]) are used to encode the read
+/// > and write accessibility of the CSRs according to privilege level as shown in Table 2.1. The
+/// > top two bits (csr\[11:10]) indicate whether the register is read/write (00, 01, or 10) or
+/// > read-only (11). The next two bits (csr\[9:8]) encode the lowest privilege level that can
+/// > access the CSR.
 #[derive(Debug)]
 pub struct Core<A: Allocator, B: SystemBus<A>> {
     config: Config,
-    cs_registers: CSRegisters<A>,
-    registers: Allocated<A, Registers>,
     system_bus: B,
+    registers: Allocated<A, Registers>,
+    /// Index in the allocator where all CSR counter registers are stored.
+    ///
+    /// These are allocated together, since at least a subset of them will be updated every tick,
+    /// and most likely more will be updated in between snapshots.
+    ///
+    /// > RISC-V ISAs provide a set of up to 32×64-bit performance counters and timers that are
+    /// > accessible via unprivileged XLEN read-only CSR registers 0xC00–0xC1F (with the upper 32
+    /// > bits accessed via CSR registers 0xC80–0xC9F on RV32). The first three of these (CYCLE,
+    /// > TIME, and INSTRET) have dedicated functions (cycle count, real-time clock, and
+    /// > instructions-retired respectively), while the remaining counters, if implemented, provide
+    /// > programmable event counting.
+    counters: Allocated<A, [u64; 32]>,
+    privilege_level: Allocated<A, PrivilegeLevel>,
+    endianness: Allocated<A, Endianness>,
 }
 
 impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
+    /// The misa CSR is set to `0x4014_0100`, indicating that MXL=32 and that extensions I, S, and U
+    /// are supported.
+    ///
+    /// > The misa CSR is a WARL read-write register reporting the ISA supported by the hart. This
+    /// > register must be readable in any implementation, but a value of zero can be returned to
+    /// > indicate the misa register has not been implemented, requiring that CPU capabilities be
+    /// > determined through a separate non-standard mechanism.
+    ///
+    /// > The MXL (Machine XLEN) field encodes the native base integer ISA width as shown in Table
+    /// > 3.1. The MXL field may be writable in implementations that support multiple base ISAs.
+    /// > The effective XLEN in M-mode, MXLEN, is given by the setting of MXL, or has a fixed value
+    /// > if misa is zero. The MXL field is always set to the widest supported ISA variant at reset.
+    ///
+    /// > Table 3.1: Encoding of MXL field in misa.
+    /// > | MXL | XLEN |
+    /// > | ---:| ----:|
+    /// > |   1 |   32 |
+    /// > |   2 |   64 |
+    /// > |   3 |  128 |
+    pub const MISA: u32 = 0x4014_0100;
+    /// The mvendorid CSR is set to 0 to indicate this is a non-commercial implementation.
+    ///
+    /// > The mvendorid CSR is a 32-bit read-only register providing the JEDEC manufacturer ID of
+    /// > the provider of the core. This register must be readable in any implementation, but a
+    /// > value of 0 can be returned to indicate the field is not implemented or that this is a
+    /// > non-commercial implementation.
+    pub const MVENDORID: u32 = 0;
+    /// The marchid CSR is set to 0 to indicate it is not implemented.
+    ///
+    /// > The marchid CSR is an MXLEN-bit read-only register encoding the base microarchitecture of
+    /// > the hart. This register must be readable in any implementation, but a value of 0 can be
+    /// > returned to indicate the field is not implemented. The combination of mvendorid and
+    /// > marchid should uniquely identify the type of hart microarchitecture that is implemented.
+    pub const MARCHID: u32 = 0;
+    /// The mimpid CSR is set to 0 to indicate it is not implemented.
+    ///
+    /// > The mimpid CSR provides a unique encoding of the version of the processor implementation.
+    /// > This register must be readable in any implementation, but a value of 0 can be returned to
+    /// > indicate that the field is not implemented. The Implementation value should reflect the
+    /// > design of the RISC-V processor itself and not any surrounding system.
+    pub const MIMPID: u32 = 0;
+
     pub fn new(allocator: &mut A, system_bus: B, config: Config) -> Self {
-        let cs_registers = CSRegisters::new(allocator);
         let registers = Allocated::new(allocator, Registers::new());
         Self {
             config,
-            cs_registers,
-            registers,
             system_bus,
+            registers,
+            counters: Allocated::new(allocator, [0; 32]),
+            privilege_level: Allocated::new(allocator, PrivilegeLevel::Machine),
+            endianness: Allocated::new(allocator, Endianness::LE),
         }
     }
 
@@ -80,8 +159,8 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
 
     /// Force this core to its resets state.
     pub fn reset(&self, allocator: &mut A) {
-        self.cs_registers.reset(allocator);
         *self.registers.get_mut(allocator) = Registers::new();
+        *self.counters.get_mut(allocator) = [0; 32];
     }
 
     /// Provide a read-only view of this core's configuration.
@@ -89,10 +168,6 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
     /// It is not possible to modify the configuration after creation.
     pub fn config(&self) -> &Config {
         &self.config
-    }
-
-    pub fn cs_registers(&self) -> &CSRegisters<A> {
-        &self.cs_registers
     }
 
     pub fn registers<'a>(&self, allocator: &'a A) -> &'a Registers {
@@ -104,12 +179,93 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
     }
 
     pub fn privilege_level(&self, allocator: &A) -> PrivilegeLevel {
-        todo!()
+        *self.privilege_level.get(allocator)
     }
 
     /// Returns the endianness of the core in the current privilege mode.
     pub fn endianness(&self, allocator: &A) -> Endianness {
-        todo!()
+        *self.endianness.get(allocator)
+    }
+
+    /// Read the value of a CSR by its specifier.
+    ///
+    /// `privilege_level` indicates at what privilege level the read is performed. If the CSR that
+    /// is being read requires a higher privilege level (see
+    /// [`csr_specifier::required_privilege_level`]), then an [`CsrAccessError::Privileged`] will be
+    /// given.
+    pub fn read_csr(
+        &self,
+        allocator: &mut A,
+        specifier: CsrSpecifier,
+        privilege_level: PrivilegeLevel,
+    ) -> Result<u32, CsrAccessError> {
+        self.check_csr_access(allocator, specifier, privilege_level)?;
+        match specifier {
+            csr_specifier::CYCLE
+            | csr_specifier::TIME
+            | csr_specifier::INSTRET
+            | csr_specifier::HPMCOUNTER3..=csr_specifier::HPMCOUNTER31 => {
+                let offset = specifier as usize - csr_specifier::CYCLE as usize;
+                Ok(self.counters.get(allocator)[offset] as u32)
+            }
+            csr_specifier::CYCLEH
+            | csr_specifier::TIMEH
+            | csr_specifier::INSTRETH
+            | csr_specifier::HPMCOUNTER3H..=csr_specifier::HPMCOUNTER31H => {
+                let offset = specifier as usize - csr_specifier::CYCLEH as usize;
+                Ok((self.counters.get(allocator)[offset] >> 32) as u32)
+            }
+            csr_specifier::MISA => Ok(Self::MISA),
+            csr_specifier::MVENDORID => Ok(Self::MVENDORID),
+            csr_specifier::MARCHID => Ok(Self::MARCHID),
+            csr_specifier::MIMPID => Ok(Self::MIMPID),
+            csr_specifier::MHARTID => Ok(self.config.hart_id),
+            _ => todo!(),
+        }
+    }
+
+    pub fn write_csr(
+        &self,
+        allocator: &mut A,
+        specifier: CsrSpecifier,
+        privilege_level: PrivilegeLevel,
+        _value: u32,
+        _mask: u32,
+    ) -> Result<(), CsrWriteError> {
+        self.check_csr_access(allocator, specifier, privilege_level)
+            .map_err(CsrWriteError::AccessError)?;
+        if csr_specifier::is_read_only(specifier) {
+            return Err(CsrWriteError::WriteToReadOnly);
+        }
+        match specifier {
+            // The machine info registers are read-only WARL in this implementation.
+            csr_specifier::MISA => Ok(()),
+            csr_specifier::MVENDORID => Ok(()),
+            csr_specifier::MARCHID => Ok(()),
+            csr_specifier::MIMPID => Ok(()),
+            csr_specifier::MHARTID => Ok(()),
+            _ => todo!(),
+        }
+    }
+
+    fn check_csr_access(
+        &self,
+        _allocator: &A,
+        specifier: CsrSpecifier,
+        privilege_level: PrivilegeLevel,
+    ) -> Result<(), CsrAccessError> {
+        if !csr_specifier::is_valid(specifier) {
+            return Err(CsrAccessError::CsrUnsupported(specifier));
+        }
+        let required_level = csr_specifier::required_privilege_level(specifier);
+        if privilege_level < required_level {
+            return Err(CsrAccessError::Privileged {
+                specifier,
+                required_level,
+                actual_level: privilege_level,
+            });
+        }
+        Ok(())
     }
 
     /// Provides an access wrapper around the system bus to address it as memory from this core's
@@ -347,6 +503,37 @@ impl<A: Allocator, B: SystemBus<A>> Simulatable<A> for Core<A, B> {
     fn drop(self, allocator: &mut A) {
         self.drop(allocator);
     }
+}
+
+/// Errors that can occur when attempting to access a CSR.
+#[derive(Error, Debug)]
+pub enum CsrAccessError {
+    #[error("unsupported CSR: {0:#05X}")]
+    CsrUnsupported(CsrSpecifier),
+    /// Attempt to access a CSR that requires a higher privilege level.
+    #[error(
+        "cannot access specifier {specifier:#05X} from privilege level {actual_level}, \
+             since it requires privilege level {required_level}"
+    )]
+    Privileged {
+        /// The CSR for which access was requested.
+        specifier: CsrSpecifier,
+        /// The minimum required privilege level to access that CSR.
+        required_level: RawPrivilegeLevel,
+        /// The actual privilegel level from which the access was performed.
+        actual_level: PrivilegeLevel,
+    },
+}
+
+/// Errors that can occur when attempting to write to a CSR.
+#[derive(Error, Debug)]
+pub enum CsrWriteError {
+    /// A non-write specific access error. See [`CsrAccessError`].
+    #[error("{0}")]
+    AccessError(CsrAccessError),
+    /// Attempt to write to a read-only register.
+    #[error("writing to read-only CSR is invalid")]
+    WriteToReadOnly,
 }
 
 /// Result of executing a single instruction. [`Ok`] if execution went normal, [`Err`] if an

@@ -1,6 +1,5 @@
 use super::mmu::{MemoryError, CORE_ENDIAN};
-use crate::core::{Core, Exception, ExecutionResult};
-use crate::cs_registers::CsrSpecifier;
+use crate::core::{Core, CsrSpecifier, Exception, ExecutionResult};
 use crate::instruction::{CsrOp, FenceOrderCombination};
 use crate::registers::{Registers, Specifier};
 use crate::system_bus::SystemBus;
@@ -739,10 +738,10 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
         // privilege level to be changed as a side-effect. This CSR operation should be atomic, so
         // both the read and write should be performed at the same, original privilege level.
         let privilege_level = self.core.privilege_level(self.allocator);
-        let cs_registers = self.core.cs_registers();
         if op != CsrOp::ReadWrite || dest != Specifier::X0 {
-            let old_value = cs_registers
-                .read(self.allocator, csr, privilege_level)
+            let old_value = self
+                .core
+                .read_csr(self.allocator, csr, privilege_level)
                 .map_err(|_| Exception::IllegalInstruction)?;
             let registers = self.core.registers_mut(self.allocator);
             registers.set_x(dest, old_value);
@@ -753,8 +752,8 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
                 CsrOp::ReadSet => (0xFFFF_FFFF, src_value),
                 CsrOp::ReadClear => (0x0000_0000, src_value),
             };
-            cs_registers
-                .write(self.allocator, csr, privilege_level, value, mask)
+            self.core
+                .write_csr(self.allocator, csr, privilege_level, value, mask)
                 .map_err(|_| Exception::IllegalInstruction)?;
         }
         Ok(())

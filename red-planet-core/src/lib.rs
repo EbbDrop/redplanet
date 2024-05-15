@@ -10,7 +10,6 @@ pub mod address_range;
 pub mod board;
 pub mod bus;
 pub mod core;
-pub mod cs_registers;
 pub mod instruction;
 pub mod registers;
 pub mod resources;
