@@ -104,6 +104,9 @@ impl<A: Allocator> Board<A> {
             crate::core::Config {
                 // At least one Hart must have ID 0 according to the spec.
                 hart_id: 0,
+                // TODO: Get these addresses from the CLINT.
+                mtime_address: 0x2000_7ff8,
+                mtimecmp_address: 0x2000_0000,
                 support_misaligned_memory_access: true,
                 reset_vector: mrom_range.start(),
             },
