@@ -1,3 +1,4 @@
+use crate::cs_registers::CsrSpecifier;
 use crate::registers::Specifier;
 use thiserror::Error;
 
@@ -63,6 +64,18 @@ pub enum Instruction {
     },
     Ecall,
     Ebreak,
+    Csr {
+        op: CsrOp,
+        dest: Specifier,
+        csr: CsrSpecifier,
+        src: Specifier,
+    },
+    Csri {
+        op: CsrOp,
+        dest: Specifier,
+        csr: CsrSpecifier,
+        immediate: u32,
+    },
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -128,6 +141,16 @@ pub struct FenceOrderCombination {
     pub device_output: bool,
     pub memory_reads: bool,
     pub memory_writes: bool,
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum CsrOp {
+    /// Atomic Read/Write CSR.
+    ReadWrite,
+    /// Atomic Read and Set Bits in CSR.
+    ReadSet,
+    /// Atomic Read and Clear Bits in CSR.
+    ReadClear,
 }
 
 impl Instruction {
@@ -250,10 +273,41 @@ impl Instruction {
                 }
             }
             Opcode::System => match i_sys(raw_instruction) {
-                Some(sys) => Ok(match sys {
-                    Sys::Ecall => Self::Ecall,
-                    Sys::Ebreak => Self::Ebreak,
-                }),
+                Some(sys) => match sys {
+                    SysFunct::Priv => match i_sys_priv(raw_instruction) {
+                        Some(sys_priv) => Ok(match sys_priv {
+                            SysPriv::Ecall => Self::Ecall,
+                            SysPriv::Ebreak => Self::Ebreak,
+                        }),
+                        None => Err(DecodeError::IllegalInstruction),
+                    },
+                    SysFunct::Csrrw | SysFunct::Csrrs | SysFunct::Csrrc => {
+                        Ok(Instruction::Csr {
+                            op: match sys {
+                                SysFunct::Csrrw => CsrOp::ReadWrite,
+                                SysFunct::Csrrs => CsrOp::ReadSet,
+                                SysFunct::Csrrc => CsrOp::ReadClear,
+                                _ => unreachable!(), // Already checked in outer match
+                            },
+                            dest: rd(raw_instruction),
+                            csr: csr(raw_instruction),
+                            src: rs1(raw_instruction),
+                        })
+                    }
+                    SysFunct::Csrrwi | SysFunct::Csrrsi | SysFunct::Csrrci => {
+                        Ok(Instruction::Csri {
+                            op: match sys {
+                                SysFunct::Csrrw => CsrOp::ReadWrite,
+                                SysFunct::Csrrs => CsrOp::ReadSet,
+                                SysFunct::Csrrc => CsrOp::ReadClear,
+                                _ => unreachable!(), // Already checked in outer match
+                            },
+                            dest: rd(raw_instruction),
+                            csr: csr(raw_instruction),
+                            immediate: u32::from(rs1(raw_instruction)),
+                        })
+                    }
+                },
                 None => Err(DecodeError::IllegalInstruction),
             },
         }
@@ -326,6 +380,10 @@ fn rs2(raw_instruction: u32) -> Specifier {
     Specifier::from_u5(((raw_instruction >> 20) & 0x1F) as u8)
 }
 
+fn csr(raw_instruction: u32) -> CsrSpecifier {
+    i_imm(raw_instruction) as u16
+}
+
 fn i_funct(raw_instruction: u32) -> Option<RegImmOp> {
     match funct3(raw_instruction) {
         0b000 => Some(RegImmOp::Addi),
@@ -348,15 +406,27 @@ fn i_shfunct(raw_instruction: u32) -> Option<RegShiftImmOp> {
     }
 }
 
-fn i_sys(raw_instruction: u32) -> Option<Sys> {
+fn i_sys(raw_instruction: u32) -> Option<SysFunct> {
+    match funct3(raw_instruction) {
+        0b000 => Some(SysFunct::Priv),
+        0b001 => Some(SysFunct::Csrrw),
+        0b010 => Some(SysFunct::Csrrs),
+        0b011 => Some(SysFunct::Csrrc),
+        0b101 => Some(SysFunct::Csrrwi),
+        0b110 => Some(SysFunct::Csrrsi),
+        0b111 => Some(SysFunct::Csrrci),
+        _ => None,
+    }
+}
+
+fn i_sys_priv(raw_instruction: u32) -> Option<SysPriv> {
     match (
-        funct3(raw_instruction),
         i_imm(raw_instruction),
         u8::from(rs1(raw_instruction)),
-        u8::from(rs2(raw_instruction)),
+        u8::from(rd(raw_instruction)),
     ) {
-        (0, 0, 0, 0) => Some(Sys::Ecall),
-        (0, 1, 0, 0) => Some(Sys::Ebreak),
+        (0, 0, 0) => Some(SysPriv::Ecall),
+        (1, 0, 0) => Some(SysPriv::Ebreak),
         _ => None,
     }
 }
@@ -482,7 +552,18 @@ enum Opcode {
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
-enum Sys {
+enum SysFunct {
+    Priv,
+    Csrrw,
+    Csrrs,
+    Csrrc,
+    Csrrwi,
+    Csrrsi,
+    Csrrci,
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+enum SysPriv {
     Ecall,
     Ebreak,
 }

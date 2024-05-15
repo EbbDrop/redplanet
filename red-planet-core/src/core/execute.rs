@@ -1,6 +1,7 @@
 use super::mmu::{MemoryError, CORE_ENDIAN};
 use crate::core::{Core, Exception, ExecutionResult};
-use crate::instruction::FenceOrderCombination;
+use crate::cs_registers::CsrSpecifier;
+use crate::instruction::{CsrOp, FenceOrderCombination};
 use crate::registers::{Registers, Specifier};
 use crate::system_bus::SystemBus;
 use crate::{Alignment, Allocator};
@@ -394,7 +395,161 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
         todo!()
     }
 
-    #[inline]
+    /// Executes a `csrrw` instruction.
+    ///
+    /// Corresponds to the assembly instruction `csrrw dest csr src`.
+    ///
+    /// > The CSRRW (Atomic Read/Write CSR) instruction atomically swaps values in the CSRs and
+    /// > integer registers. CSRRW reads the old value of the CSR, zero-extends the value to XLEN
+    /// > bits, then writes it to integer register rd. The initial value in rs1 is written to the
+    /// > CSR. If rd=x0, then the instruction shall not read the CSR and shall not cause any of the
+    /// > side effects that might occur on a CSR read.
+    ///
+    /// > A CSRRW with rs1=x0 will attempt to write zero to the destination CSR.
+    ///
+    /// > Attempts to access a non-existent CSR raise an illegal instruction exception. Attempts to
+    /// > access a CSR without appropriate privilege level or to write a read-only register also
+    /// > raise illegal instruction exceptions. A read/write register might also contain some bits
+    /// > that are read-only, in which case writes to the read-only bits are ignored.
+    pub fn csrrw(&mut self, dest: Specifier, csr: CsrSpecifier, src: Specifier) -> ExecutionResult {
+        self.csr_reg_op(CsrOp::ReadWrite, dest, csr, src)
+    }
+
+    /// Executes a `csrrs` instruction.
+    ///
+    /// Corresponds to the assembly instruction `csrrs dest csr src`.
+    ///
+    /// > The CSRRS (Atomic Read and Set Bits in CSR) instruction reads the value of the CSR,
+    /// > zero-extends the value to XLEN bits, and writes it to integer register rd. The initial
+    /// > value in integer register rs1 is treated as a bit mask that specifies bit positions to be
+    /// > set in the CSR. Any bit that is high in rs1 will cause the corresponding bit to be set in
+    /// > the CSR, if that CSR bit is writable. Other bits in the CSR are unaffected (though CSRs
+    /// > might have side effects when written).
+    ///
+    /// > For both CSRRS and CSRRC, if rs1=x0, then the instruction will not write to the CSR at
+    /// > all, and so shall not cause any of the side effects that might otherwise occur on a CSR
+    /// > write, such as raising illegal instruction exceptions on accesses to read-only CSRs. Both
+    /// > CSRRS and CSRRC always read the addressed CSR and cause any read side effects regardless
+    /// > of rs1 and rd fields. Note that if rs1 specifies a register holding a zero value other
+    /// > than x0, the instruction will still attempt to write the unmodified value back to the CSR
+    /// > and will cause any attendant side effects.
+    ///
+    /// > Attempts to access a non-existent CSR raise an illegal instruction exception. Attempts to
+    /// > access a CSR without appropriate privilege level or to write a read-only register also
+    /// > raise illegal instruction exceptions. A read/write register might also contain some bits
+    /// > that are read-only, in which case writes to the read-only bits are ignored.
+    pub fn csrrs(&mut self, dest: Specifier, csr: CsrSpecifier, src: Specifier) -> ExecutionResult {
+        self.csr_reg_op(CsrOp::ReadSet, dest, csr, src)
+    }
+
+    /// Executes a `csrrc` instruction.
+    ///
+    /// Corresponds to the assembly instruction `csrrc dest csr src`.
+    ///
+    /// > The CSRRC (Atomic Read and Clear Bits in CSR) instruction reads the value of the CSR,
+    /// > zero-extends the value to XLEN bits, and writes it to integer register rd. The initial
+    /// > value in integer register rs1 is treated as a bit mask that specifies bit positions to be
+    /// > cleared in the CSR. Any bit that is high in rs1 will cause the corresponding bit to be
+    /// > cleared in the CSR, if that CSR bit is writable. Other bits in the CSR are unaffected.
+    ///
+    /// > For both CSRRS and CSRRC, if rs1=x0, then the instruction will not write to the CSR at
+    /// > all, and so shall not cause any of the side effects that might otherwise occur on a CSR
+    /// > write, such as raising illegal instruction exceptions on accesses to read-only CSRs. Both
+    /// > CSRRS and CSRRC always read the addressed CSR and cause any read side effects regardless
+    /// > of rs1 and rd fields. Note that if rs1 specifies a register holding a zero value other
+    /// > than x0, the instruction will still attempt to write the unmodified value back to the CSR
+    /// > and will cause any attendant side effects. A CSRRW with rs1=x0 will attempt to write zero
+    /// > to the destination CSR.
+    ///
+    /// > Attempts to access a non-existent CSR raise an illegal instruction exception. Attempts to
+    /// > access a CSR without appropriate privilege level or to write a read-only register also
+    /// > raise illegal instruction exceptions. A read/write register might also contain some bits
+    /// > that are read-only, in which case writes to the read-only bits are ignored.
+    pub fn csrrc(&mut self, dest: Specifier, csr: CsrSpecifier, src: Specifier) -> ExecutionResult {
+        self.csr_reg_op(CsrOp::ReadClear, dest, csr, src)
+    }
+
+    /// Executes a `csrrwi` instruction.
+    ///
+    /// Corresponds to the assembly instruction `csrrwi dest csr immediate`.
+    ///
+    /// > The CSRRWI, CSRRSI, and CSRRCI variants are similar to CSRRW, CSRRS, and CSRRC
+    /// > respectively, except they update the CSR using an XLEN-bit value obtained by
+    /// > zero-extending a 5-bit unsigned immediate (uimm[4:0]) field encoded in the rs1 field
+    /// > instead of a value from an integer register.
+    ///
+    /// > For CSRRWI, if rd=x0, then the instruction shall not read the CSR and shall not cause any
+    /// > of the side effects that might occur on a CSR read.
+    ///
+    /// > Attempts to access a non-existent CSR raise an illegal instruction exception. Attempts to
+    /// > access a CSR without appropriate privilege level or to write a read-only register also
+    /// > raise illegal instruction exceptions. A read/write register might also contain some bits
+    /// > that are read-only, in which case writes to the read-only bits are ignored.
+    pub fn csrrwi(
+        &mut self,
+        dest: Specifier,
+        csr: CsrSpecifier,
+        immediate: u32,
+    ) -> ExecutionResult {
+        self.csr_imm_op(CsrOp::ReadWrite, dest, csr, immediate)
+    }
+
+    /// Executes a `csrrsi` instruction.
+    ///
+    /// Corresponds to the assembly instruction `csrrsi dest csr immediate`.
+    ///
+    /// > The CSRRWI, CSRRSI, and CSRRCI variants are similar to CSRRW, CSRRS, and CSRRC
+    /// > respectively, except they update the CSR using an XLEN-bit value obtained by
+    /// > zero-extending a 5-bit unsigned immediate (uimm[4:0]) field encoded in the rs1 field
+    /// > instead of a value from an integer register. For CSRRSI and CSRRCI, if the uimm[4:0] field
+    /// > is zero, then these instructions will not write to the CSR, and shall not cause any of the
+    /// > side effects that might otherwise occur on a CSR write.
+    ///
+    /// > Both CSRRSI and CSRRCI will always read the CSR and cause any read side effects regardless
+    /// > of rd and rs1 fields.
+    ///
+    /// > Attempts to access a non-existent CSR raise an illegal instruction exception. Attempts to
+    /// > access a CSR without appropriate privilege level or to write a read-only register also
+    /// > raise illegal instruction exceptions. A read/write register might also contain some bits
+    /// > that are read-only, in which case writes to the read-only bits are ignored.
+    pub fn csrrsi(
+        &mut self,
+        dest: Specifier,
+        csr: CsrSpecifier,
+        immediate: u32,
+    ) -> ExecutionResult {
+        self.csr_imm_op(CsrOp::ReadSet, dest, csr, immediate)
+    }
+
+    /// Executes a `csrrci` instruction.
+    ///
+    /// Corresponds to the assembly instruction `csrrci dest csr immediate`.
+    ///
+    /// > The CSRRWI, CSRRSI, and CSRRCI variants are similar to CSRRW, CSRRS, and CSRRC
+    /// > respectively, except they update the CSR using an XLEN-bit value obtained by
+    /// > zero-extending a 5-bit unsigned immediate (uimm[4:0]) field encoded in the rs1 field
+    /// > instead of a value from an integer register. For CSRRSI and CSRRCI, if the uimm[4:0] field
+    /// > is zero, then these instructions will not write to the CSR, and shall not cause any of the
+    /// > side effects that might otherwise occur on a CSR write.
+    ///
+    /// > Both CSRRSI and CSRRCI will always read the CSR and cause any read side effects regardless
+    /// > of rd and rs1 fields.
+    ///
+    /// > Attempts to access a non-existent CSR raise an illegal instruction exception. Attempts to
+    /// > access a CSR without appropriate privilege level or to write a read-only register also
+    /// > raise illegal instruction exceptions. A read/write register might also contain some bits
+    /// > that are read-only, in which case writes to the read-only bits are ignored.
+    pub fn csrrci(
+        &mut self,
+        dest: Specifier,
+        csr: CsrSpecifier,
+        immediate: u32,
+    ) -> ExecutionResult {
+        self.csr_imm_op(CsrOp::ReadClear, dest, csr, immediate)
+    }
+
+    // Private generic implementations
+
     fn reg_imm_op<F>(
         &mut self,
         dest: Specifier,
@@ -411,7 +566,6 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
         Ok(())
     }
 
-    #[inline]
     fn reg_shamt_op<F>(
         &mut self,
         dest: Specifier,
@@ -431,7 +585,6 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
         Ok(())
     }
 
-    #[inline]
     fn reg_reg_op<F>(
         &mut self,
         dest: Specifier,
@@ -491,7 +644,6 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
         Ok(())
     }
 
-    #[inline]
     fn load_op<F>(
         &mut self,
         dest: Specifier,
@@ -519,7 +671,6 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
         }
     }
 
-    #[inline]
     fn store_op<F>(
         &mut self,
         src: Specifier,
@@ -544,6 +695,69 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
                 MemoryError::EffectfulReadOnly => unreachable!(),
             },
         }
+    }
+
+    fn csr_reg_op(
+        &mut self,
+        op: CsrOp,
+        dest: Specifier,
+        csr: CsrSpecifier,
+        src: Specifier,
+    ) -> ExecutionResult {
+        self.csr_op(
+            op,
+            dest,
+            csr,
+            (op == CsrOp::ReadWrite || src != Specifier::X0)
+                .then(|| self.core.registers(self.allocator).x(src)),
+        )
+    }
+
+    fn csr_imm_op(
+        &mut self,
+        op: CsrOp,
+        dest: Specifier,
+        csr: CsrSpecifier,
+        immediate: u32,
+    ) -> ExecutionResult {
+        self.csr_op(
+            op,
+            dest,
+            csr,
+            (op == CsrOp::ReadWrite || immediate != 0).then_some(immediate),
+        )
+    }
+
+    fn csr_op(
+        &mut self,
+        op: CsrOp,
+        dest: Specifier,
+        csr: CsrSpecifier,
+        src_value: Option<u32>,
+    ) -> ExecutionResult {
+        // Read and store the core's current privilege level, since the CSR read may cause the
+        // privilege level to be changed as a side-effect. This CSR operation should be atomic, so
+        // both the read and write should be performed at the same, original privilege level.
+        let privilege_level = self.core.privilege_level(self.allocator);
+        let cs_registers = self.core.cs_registers();
+        if op != CsrOp::ReadWrite || dest != Specifier::X0 {
+            let old_value = cs_registers
+                .read(self.allocator, csr, privilege_level)
+                .map_err(|_| Exception::IllegalInstruction)?;
+            let registers = self.core.registers_mut(self.allocator);
+            registers.set_x(dest, old_value);
+        };
+        if let Some(src_value) = src_value {
+            let (value, mask) = match op {
+                CsrOp::ReadWrite => (src_value, 0xFFFF_FFFF),
+                CsrOp::ReadSet => (0xFFFF_FFFF, src_value),
+                CsrOp::ReadClear => (0x0000_0000, src_value),
+            };
+            cs_registers
+                .write(self.allocator, csr, privilege_level, value, mask)
+                .map_err(|_| Exception::IllegalInstruction)?;
+        }
+        Ok(())
     }
 }
 

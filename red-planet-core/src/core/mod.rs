@@ -6,12 +6,12 @@ mod mmu;
 use crate::core::mmu::MemoryError;
 use crate::cs_registers::CSRegisters;
 use crate::instruction::{
-    BranchCondition, Instruction, LoadWidth, RegImmOp, RegRegOp, RegShiftImmOp, StoreWidth,
+    BranchCondition, CsrOp, Instruction, LoadWidth, RegImmOp, RegRegOp, RegShiftImmOp, StoreWidth,
 };
 use crate::registers::Registers;
 use crate::simulator::Simulatable;
 use crate::system_bus::SystemBus;
-use crate::{Alignment, Allocated, Allocator, Endianness};
+use crate::{Alignment, Allocated, Allocator, Endianness, PrivilegeLevel};
 use execute::Executor;
 use mmu::Mmu;
 use std::fmt::Debug;
@@ -103,8 +103,12 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
         self.registers.get_mut(allocator)
     }
 
+    pub fn privilege_level(&self, allocator: &A) -> PrivilegeLevel {
+        todo!()
+    }
+
     /// Returns the endianness of the core in the current privilege mode.
-    pub fn endianness(&self) -> Endianness {
+    pub fn endianness(&self, allocator: &A) -> Endianness {
         todo!()
     }
 
@@ -266,6 +270,27 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
             } => executor.fence(predecessor, successor),
             Instruction::Ecall => executor.ecall(),
             Instruction::Ebreak => executor.ebreak(),
+            Instruction::Csr { op, dest, csr, src } => {
+                let op = match op {
+                    CsrOp::ReadWrite => Executor::csrrw,
+                    CsrOp::ReadSet => Executor::csrrs,
+                    CsrOp::ReadClear => Executor::csrrc,
+                };
+                op(&mut executor, dest, csr, src)
+            }
+            Instruction::Csri {
+                op,
+                dest,
+                csr,
+                immediate,
+            } => {
+                let op = match op {
+                    CsrOp::ReadWrite => Executor::csrrwi,
+                    CsrOp::ReadSet => Executor::csrrsi,
+                    CsrOp::ReadClear => Executor::csrrci,
+                };
+                op(&mut executor, dest, csr, immediate)
+            }
         }
     }
 

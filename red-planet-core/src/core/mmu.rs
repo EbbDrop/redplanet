@@ -21,7 +21,7 @@ macro_rules! access_fns {
                     match E {
                         LITTLE_ENDIAN => $u::from_le_bytes(buf),
                         BIG_ENDIAN => $u::from_be_bytes(buf),
-                        CORE_ENDIAN => match self.core.endianness() {
+                        CORE_ENDIAN => match self.core.endianness(allocator) {
                             Endianness::LE => $u::from_le_bytes(buf),
                             Endianness::BE => $u::from_be_bytes(buf),
                         }
@@ -47,7 +47,7 @@ macro_rules! access_fns {
                     match E {
                         LITTLE_ENDIAN => $u::from_le_bytes(buf),
                         BIG_ENDIAN => $u::from_be_bytes(buf),
-                        CORE_ENDIAN => match self.core.endianness() {
+                        CORE_ENDIAN => match self.core.endianness(allocator) {
                             Endianness::LE => $u::from_le_bytes(buf),
                             Endianness::BE => $u::from_be_bytes(buf),
                         }
@@ -69,7 +69,7 @@ macro_rules! access_fns {
                 let buf = match E {
                     LITTLE_ENDIAN => value.to_le_bytes(),
                     BIG_ENDIAN => value.to_be_bytes(),
-                    CORE_ENDIAN => match self.core.endianness() {
+                    CORE_ENDIAN => match self.core.endianness(allocator) {
                         Endianness::LE => value.to_le_bytes(),
                         Endianness::BE => value.to_be_bytes(),
                     }
