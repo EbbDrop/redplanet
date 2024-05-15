@@ -1,4 +1,4 @@
-use crate::{address_range, AddressRange};
+use crate::{addr_range, AddressRange};
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::hash::Hash;
@@ -73,7 +73,7 @@ impl<T> AddressMap<T> {
                     // according to the binary search.
                     .map(|(range, _)| range.start() - 1)
                     .unwrap_or(u32::MAX);
-                (address_range![start, end], None)
+                (addr_range![start, end], None)
             }
         }
     }
@@ -112,7 +112,7 @@ pub enum AddressMapError {
 macro_rules! addr_map {
     ($([$start:expr, $end:expr] => $value:expr,)*) => {
         $crate::address_map::AddressMap::try_from(vec![
-            $(($crate::address_range![$start, $end], $value)),*
+            $(($crate::addr_range![$start, $end], $value)),*
         ]).unwrap()
     };
 }
@@ -214,7 +214,7 @@ impl From<AddressMapError> for TwoWayAddressMapError {
 macro_rules! two_way_addr_map {
     ($([$start:expr, $end:expr] <=> $value:expr,)*) => {
         $crate::address_map::TwoWayAddressMap::try_from(vec![
-            $(($crate::address_range![$start, $end], $value)),*
+            $(($crate::addr_range![$start, $end], $value)),*
         ]).unwrap()
     };
 }

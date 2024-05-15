@@ -200,7 +200,7 @@ pub struct InvalidBoundsError {
 pub struct UnrepresentableBoundsError(AddressRange);
 
 #[macro_export]
-macro_rules! address_range {
+macro_rules! addr_range {
     ($start:expr, $end:expr) => {
         $crate::address_range::AddressRange::new($start, $end).unwrap()
     };
