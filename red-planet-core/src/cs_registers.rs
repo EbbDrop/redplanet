@@ -55,7 +55,7 @@ impl<A: Allocator> CSRegisters<A> {
     /// [`CsrSpecifier::required_privilege_level`]), then an [`AccessError::Privileged`] will be given.
     pub fn read(
         &self,
-        allocator: &A,
+        allocator: &mut A,
         specifier: CsrSpecifier,
         privilege_level: PrivilegeLevel,
     ) -> Result<u32, AccessError> {
@@ -84,6 +84,8 @@ impl<A: Allocator> CSRegisters<A> {
         _allocator: &mut A,
         specifier: CsrSpecifier,
         privilege_level: PrivilegeLevel,
+        _value: u32,
+        _mask: u32,
     ) -> Result<(), WriteError> {
         Self::check_access(specifier, privilege_level).map_err(WriteError::AccessError)?;
         if specifier::is_read_only(specifier) {
@@ -97,7 +99,7 @@ impl<A: Allocator> CSRegisters<A> {
         privilege_level: PrivilegeLevel,
     ) -> Result<(), AccessError> {
         if !specifier::is_valid(specifier) {
-            return Err(AccessError::InvalidSpecifier(specifier));
+            return Err(AccessError::CsrUnsupported(specifier));
         }
         let required_level = specifier::required_privilege_level(specifier);
         if privilege_level < required_level {
@@ -114,8 +116,8 @@ impl<A: Allocator> CSRegisters<A> {
 /// Errors that can occur when attempting to access a CSR.
 #[derive(Error, Debug)]
 pub enum AccessError {
-    #[error("invalid CSR specifier: {0:#05X} does not fit in 12 bits")]
-    InvalidSpecifier(CsrSpecifier),
+    #[error("unsupported CSR: {0:#05X}")]
+    CsrUnsupported(CsrSpecifier),
     /// Attempt to access a CSR that requires a higher privilege level.
     #[error(
         "cannot access specifier {specifier:#05X} from privilege level {actual_level}, \
