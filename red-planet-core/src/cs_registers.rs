@@ -21,6 +21,8 @@ use thiserror::Error;
 /// > access the CSR.
 #[derive(Debug)]
 pub struct CSRegisters<A: Allocator> {
+    /// The five fixed machine info registers: misa, mvendorid, marchid, mimpid, mhartid.
+    m_info: Allocated<A, MInfo>,
     /// Index in the allocator where all CSR counter registers are stored.
     ///
     /// These are allocated together, since at least a subset of them will be updated every tick,
@@ -39,6 +41,21 @@ impl<A: Allocator> CSRegisters<A> {
     /// Creates a fresh collection of registers initialized to their reset values.
     pub fn new(allocator: &mut A) -> Self {
         Self {
+            m_info: Allocated::new(
+                allocator,
+                MInfo {
+                    // Set MXL=32 and set extension flags I, S, U.
+                    misa: 0x4014_0100,
+                    // Set to 0 to indicate non-commercial implementation.
+                    mvendorid: 0,
+                    // Set to 0 to indicate not implemented.
+                    marchid: 0,
+                    // Set to 0 to indicate not implemented.
+                    mimpid: 0,
+                    // Indicate this Hart ID has id 0, since at least one hart must have ID 0.
+                    mhartid: 0,
+                },
+            ),
             counters: Allocated::new(allocator, [0; 32]),
         }
     }
@@ -75,6 +92,11 @@ impl<A: Allocator> CSRegisters<A> {
                 let offset = specifier as usize - specifier::CYCLEH as usize;
                 Ok((self.counters.get(allocator)[offset] >> 32) as u32)
             }
+            specifier::MISA => Ok(self.m_info.get(allocator).misa),
+            specifier::MVENDORID => Ok(self.m_info.get(allocator).mvendorid),
+            specifier::MARCHID => Ok(self.m_info.get(allocator).marchid),
+            specifier::MIMPID => Ok(self.m_info.get(allocator).mimpid),
+            specifier::MHARTID => Ok(self.m_info.get(allocator).mhartid),
             _ => todo!(),
         }
     }
@@ -91,7 +113,15 @@ impl<A: Allocator> CSRegisters<A> {
         if specifier::is_read_only(specifier) {
             return Err(WriteError::WriteToReadOnly);
         }
-        todo!()
+        match specifier {
+            // The MInfo registers are read-only WARL in this implementation.
+            specifier::MISA => Ok(()),
+            specifier::MVENDORID => Ok(()),
+            specifier::MARCHID => Ok(()),
+            specifier::MIMPID => Ok(()),
+            specifier::MHARTID => Ok(()),
+            _ => todo!(),
+        }
     }
 
     fn check_access(
@@ -803,4 +833,50 @@ pub mod specifier {
         // Bits `10:9` indicate the minimum required privilege level
         RawPrivilegeLevel::from_u2(((specifier >> 8) & 0b11) as u8)
     }
+}
+
+/// Collection of some read-only machine info registers, grouped together to save on allocations.
+///
+/// Not all the registers are read-only on every system, but on the hardware platform implemented
+/// here they are.
+#[derive(Debug, Clone)]
+struct MInfo {
+    /// > The misa CSR is a WARL read-write register reporting the ISA supported by the hart. This
+    /// > register must be readable in any implementation, but a value of zero can be returned to
+    /// > indicate the misa register has not been implemented, requiring that CPU capabilities be
+    /// > determined through a separate non-standard mechanism.
+    ///
+    /// > The MXL (Machine XLEN) field encodes the native base integer ISA width as shown in Table
+    /// > 3.1. The MXL field may be writable in implementations that support multiple base ISAs.
+    /// > The effective XLEN in M-mode, MXLEN, is given by the setting of MXL, or has a fixed value
+    /// > if misa is zero. The MXL field is always set to the widest supported ISA variant at reset.
+    ///
+    /// > Table 3.1: Encoding of MXL field in misa.
+    /// > | MXL | XLEN |
+    /// > | ---:| ----:|
+    /// > |   1 |   32 |
+    /// > |   2 |   64 |
+    /// > |   3 |  128 |
+    misa: u32,
+    /// > The mvendorid CSR is a 32-bit read-only register providing the JEDEC manufacturer ID of
+    /// > the provider of the core. This register must be readable in any implementation, but a
+    /// > value of 0 can be returned to indicate the field is not implemented or that this is a
+    /// > non-commercial implementation.
+    mvendorid: u32,
+    /// > The marchid CSR is an MXLEN-bit read-only register encoding the base microarchitecture of
+    /// > the hart. This register must be readable in any implementation, but a value of 0 can be
+    /// > returned to indicate the field is not implemented. The combination of mvendorid and
+    /// > marchid should uniquely identify the type of hart microarchitecture that is implemented.
+    marchid: u32,
+    /// > The mimpid CSR provides a unique encoding of the version of the processor implementation.
+    /// > This register must be readable in any implementation, but a value of 0 can be returned to
+    /// > indicate that the field is not implemented. The Implementation value should reflect the
+    /// > design of the RISC-V processor itself and not any surrounding system.
+    mimpid: u32,
+    /// > The mhartid CSR is an MXLEN-bit read-only register containing the integer ID of the
+    /// > hardware thread running the code. This register must be readable in any implementation.
+    /// > Hart IDs might not necessarily be numbered contiguously in a multiprocessor system, but at
+    /// > least one hart must have a hart ID of zero. Hart IDs must be unique within the execution
+    /// > environment.
+    mhartid: u32,
 }
