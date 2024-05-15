@@ -151,7 +151,7 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
         let registers = self.core.registers_mut(self.allocator);
         registers.set_x(dest, result);
         increment_pc(registers);
-        ExecutionResult::Ok
+        Ok(())
     }
 
     /// Executes an `auipc` instruction.
@@ -169,7 +169,7 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
         let result = registers.pc().wrapping_add_signed(immediate & !0xFFF);
         registers.set_x(dest, result);
         increment_pc(registers);
-        ExecutionResult::Ok
+        Ok(())
     }
 
     /// Executes an `add` instruction.
@@ -383,7 +383,7 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
         let _ = predecessor;
         let _ = successor;
         increment_pc(self.core.registers_mut(self.allocator));
-        ExecutionResult::Ok
+        Ok(())
     }
 
     pub fn ecall(&mut self) -> ExecutionResult {
@@ -408,7 +408,7 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
         let registers = self.core.registers_mut(self.allocator);
         registers.set_x(dest, op(registers.x(src), immediate));
         increment_pc(registers);
-        ExecutionResult::Ok
+        Ok(())
     }
 
     #[inline]
@@ -428,7 +428,7 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
         let registers = self.core.registers_mut(self.allocator);
         registers.set_x(dest, op(registers.x(src), shift_amount_u5));
         increment_pc(registers);
-        ExecutionResult::Ok
+        Ok(())
     }
 
     #[inline]
@@ -445,7 +445,7 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
         let registers = self.core.registers_mut(self.allocator);
         registers.set_x(dest, op(registers.x(src1), registers.x(src2)));
         increment_pc(registers);
-        ExecutionResult::Ok
+        Ok(())
     }
 
     fn jump_op<F>(&mut self, dest: Specifier, compute_target: F) -> ExecutionResult
@@ -457,13 +457,13 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
         let new_pc = compute_target(registers);
         // Check target pc is word-aligned
         if !Alignment::WORD.is_aligned(new_pc) {
-            return ExecutionResult::Exception(Exception::InstructionAddressMisaligned);
+            return Err(Exception::InstructionAddressMisaligned);
         }
         // Update pc to target
         let old_pc = std::mem::replace(registers.pc_mut(), new_pc);
         // Write incremented old pc to `dest` register
         registers.set_x(dest, old_pc.wrapping_add(4));
-        ExecutionResult::Ok
+        Ok(())
     }
 
     // Takes the branch if `predicate` returns `true`.
@@ -482,13 +482,13 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
             let new_pc = registers.pc().wrapping_add_signed(offset);
             // Check target pc is word-aligned
             if !Alignment::WORD.is_aligned(new_pc) {
-                return ExecutionResult::Exception(Exception::InstructionAddressMisaligned);
+                return Err(Exception::InstructionAddressMisaligned);
             }
             *registers.pc_mut() = new_pc;
         } else {
             increment_pc(registers);
         }
-        ExecutionResult::Ok
+        Ok(())
     }
 
     #[inline]
@@ -509,13 +509,11 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
                 let registers = self.core.registers_mut(self.allocator);
                 registers.set_x(dest, value);
                 increment_pc(registers);
-                ExecutionResult::Ok
+                Ok(())
             }
             Err(err) => match err {
-                MemoryError::MisalignedAccess => {
-                    ExecutionResult::Exception(Exception::LoadAddressMisaligned)
-                }
-                MemoryError::AccessFault => ExecutionResult::Exception(Exception::LoadAccessFault),
+                MemoryError::MisalignedAccess => Err(Exception::LoadAddressMisaligned),
+                MemoryError::AccessFault => Err(Exception::LoadAccessFault),
                 MemoryError::EffectfulReadOnly => unreachable!(),
             },
         }
@@ -538,15 +536,11 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
         match op(self, address, value) {
             Ok(()) => {
                 increment_pc(self.core.registers_mut(self.allocator));
-                ExecutionResult::Ok
+                Ok(())
             }
             Err(err) => match err {
-                MemoryError::MisalignedAccess => {
-                    ExecutionResult::Exception(Exception::StoreOrAmoAddressMisaligned)
-                }
-                MemoryError::AccessFault => {
-                    ExecutionResult::Exception(Exception::StoreOrAmoAccessFault)
-                }
+                MemoryError::MisalignedAccess => Err(Exception::StoreOrAmoAddressMisaligned),
+                MemoryError::AccessFault => Err(Exception::StoreOrAmoAccessFault),
                 MemoryError::EffectfulReadOnly => unreachable!(),
             },
         }

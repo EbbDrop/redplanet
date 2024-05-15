@@ -147,7 +147,7 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
             Ok(instruction) => instruction,
             // TODO: match on the error
             Err(_) => {
-                return ExecutionResult::Exception(Exception::IllegalInstruction);
+                return Err(Exception::IllegalInstruction);
             }
         };
         self.execute_instruction(allocator, instruction)
@@ -312,9 +312,8 @@ impl<A: Allocator, B: SystemBus<A>> Simulatable<A> for Core<A, B> {
         let execution_result = self.execute_raw_instruction(allocator, raw_instruction);
 
         match execution_result {
-            ExecutionResult::Ok => {}
-            ExecutionResult::Exception(_) => todo!(),
-            ExecutionResult::Interrupt(_) => todo!(),
+            Ok(()) => {}
+            Err(_) => todo!(),
         }
 
         // TODO: update counters
@@ -325,16 +324,9 @@ impl<A: Allocator, B: SystemBus<A>> Simulatable<A> for Core<A, B> {
     }
 }
 
-#[derive(Debug, Default)]
-pub enum ExecutionResult {
-    /// Execution went normal
-    #[default]
-    Ok,
-    /// Execution triggered an exception
-    Exception(Exception),
-    /// Execution triggered an interrupt
-    Interrupt(Interrupt), // TODO
-}
+/// Result of executing a single instruction. [`Ok`] if execution went normal, [`Err`] if an
+/// exception occurred.
+pub type ExecutionResult = Result<(), Exception>;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Exception {
