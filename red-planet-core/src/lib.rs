@@ -2,6 +2,7 @@
 extern crate static_assertions;
 
 use std::cmp::Ordering;
+use std::fmt;
 use thiserror::Error;
 
 pub mod address_map;
@@ -53,6 +54,17 @@ impl RawPrivilegeLevel {
     }
 }
 
+impl fmt::Display for RawPrivilegeLevel {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match *self {
+            RawPrivilegeLevel::User => "U",
+            RawPrivilegeLevel::Supervisor => "S",
+            RawPrivilegeLevel::Reserved => "2",
+            RawPrivilegeLevel::Machine => "M",
+        })
+    }
+}
+
 /// List of defined privilege levels for RISC-V.
 ///
 /// A privilege level is always referenced by two bits, so only `0`, `1`, `2`, and `3` are valid
@@ -101,6 +113,16 @@ impl PartialOrd<RawPrivilegeLevel> for PrivilegeLevel {
     }
 }
 
+impl fmt::Display for PrivilegeLevel {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match *self {
+            PrivilegeLevel::User => "U",
+            PrivilegeLevel::Supervisor => "S",
+            PrivilegeLevel::Machine => "M",
+        })
+    }
+}
+
 impl From<PrivilegeLevel> for RawPrivilegeLevel {
     fn from(value: PrivilegeLevel) -> Self {
         match value {
@@ -124,7 +146,7 @@ impl TryFrom<RawPrivilegeLevel> for PrivilegeLevel {
 }
 
 #[derive(Error, Debug)]
-#[error("privilege level {:#b} is reserved", *.0 as u8)]
+#[error("privilege level {0} is reserved")]
 pub struct ReservedPrivilegeLevelError(RawPrivilegeLevel);
 
 pub mod unit {
@@ -240,7 +262,12 @@ pub enum Endianness {
     BE,
 }
 
-/// Wrapper around [`Allocator`] for single objects of type `T`.
+/// Wrapper around [`Allocator`] for single objects of type `T` that are never deallocated during
+/// the lifetime of this wrapper.
+///
+/// The primary goal of this wrapper is to provide a more convenient interface around
+/// [`Allocator::get`] and [`Allocator::get_mut`], which does return a (mutable) reference directly
+/// rather than a `Result`.
 #[derive(Debug)]
 pub struct Allocated<A: Allocator, T: 'static + Clone>(A::Id<T>);
 
