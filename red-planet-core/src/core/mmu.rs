@@ -4,12 +4,9 @@ use crate::{Alignment, Allocator, Endianness};
 use thiserror::Error;
 
 macro_rules! access_fns {
-    ( $( $read_fn:ident, $read_pure_fn:ident, $write_fn:ident => $u:ident ),* $(,)? ) => {
+    ( $( $read_fn:ident, $read_debug_fn:ident, $write_fn:ident => $u:ident ),* $(,)? ) => {
         $(
             /// Invoke a read for the specified address.
-            ///
-            /// The address doesn't need to be naturally aligned, but implementations may return
-            /// [`AccessError::Misaligned`] on misaligned access attempts.
             pub fn $read_fn<const E: MemOpEndianness>(
                 &self,
                 allocator: &mut A,
@@ -29,14 +26,11 @@ macro_rules! access_fns {
                 )
             }
 
-            /// Invoke an effect-free read for the specified address.
+            /// Perform a debug read for the specified address.
             ///
-            /// The address doesn't need to be naturally aligned, but implementations may return
-            /// [`AccessError::Misaligned`] on misaligned access attempts.
-            ///
-            /// See [`Bus::read_pure`] for the difference between this method and its non-pure
+            /// See [`Bus::read_debug`] for the difference between this method and its non-debug
             /// counterpart.
-            pub fn $read_pure_fn<const E: MemOpEndianness>(
+            pub fn $read_debug_fn<const E: MemOpEndianness>(
                 &self,
                 allocator: &A,
                 address: u32,
@@ -56,9 +50,6 @@ macro_rules! access_fns {
             }
 
             /// Invoke a write for the specified address.
-            ///
-            /// The address doesn't need to be naturally aligned, but implementations may return
-            /// [`AccessError::Misaligned`] on misaligned access attempts.
             pub fn $write_fn<const E: MemOpEndianness>(
                 &self,
                 allocator: &mut A,
@@ -111,7 +102,7 @@ impl<'c, A: Allocator, B: SystemBus<A>> Mmu<'c, A, B> {
             .map(|()| buf[0])
     }
 
-    pub fn read_byte_pure(&self, allocator: &A, address: u32) -> Result<u8, MemoryError> {
+    pub fn read_byte_debug(&self, allocator: &A, address: u32) -> Result<u8, MemoryError> {
         let mut buf = [0];
         self.read_debug(&mut buf, allocator, address, false)
             .map(|()| buf[0])
@@ -127,10 +118,10 @@ impl<'c, A: Allocator, B: SystemBus<A>> Mmu<'c, A, B> {
     }
 
     access_fns! {
-        read_halfword, read_halfword_pure, write_halfword => u16,
-        read_word, read_word_pure, write_word => u32,
-        read_doubleword, read_doubleword_pure, write_doubleword => u64,
-        read_quadword, read_quadword_pure, write_quadword => u128,
+        read_halfword, read_halfword_debug, write_halfword => u16,
+        read_word, read_word_debug, write_word => u32,
+        read_doubleword, read_doubleword_debug, write_doubleword => u64,
+        read_quadword, read_quadword_debug, write_quadword => u128,
     }
 
     /// Reads a naturally-aligned 32-bit little-endian word from memory.
@@ -230,6 +221,4 @@ pub enum MemoryError {
     MisalignedAccess,
     #[error("access fault")]
     AccessFault,
-    #[error("cannot read effect-free")]
-    EffectfulReadOnly,
 }

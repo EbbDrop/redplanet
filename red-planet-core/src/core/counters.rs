@@ -42,7 +42,7 @@
 /// > shadows of mcycleh, minstreth and mhpmcounternh, respectively. On RV32I the timeh CSR is a
 /// > read-only shadow of the upper 32 bits of the memory-mapped mtime register, while time shadows
 /// > only the lower 32 bits of mtime.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 pub struct Counters {
     mcycle: u32,
     mcycleh: u32,
@@ -52,9 +52,23 @@ pub struct Counters {
     skip_next_minstret_increment: bool,
 }
 
+impl Default for Counters {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Counters {
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            // mcycle, mcycleh, minstret, and minstreth are reset to an arbitrary value
+            mcycle: 0,
+            mcycleh: 0,
+            minstret: 0,
+            minstreth: 0,
+            skip_next_mcycle_increment: false,
+            skip_next_minstret_increment: false,
+        }
     }
 
     pub(super) fn increment_cycle(&mut self) {

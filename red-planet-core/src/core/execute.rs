@@ -655,19 +655,14 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
     {
         let registers = self.core.registers(self.allocator);
         let address = registers.x(base).wrapping_add_signed(offset);
-        match op(self, address) {
-            Ok(value) => {
-                let registers = self.core.registers_mut(self.allocator);
-                registers.set_x(dest, value);
-                increment_pc(registers);
-                Ok(())
-            }
-            Err(err) => match err {
-                MemoryError::MisalignedAccess => Err(Exception::LoadAddressMisaligned),
-                MemoryError::AccessFault => Err(Exception::LoadAccessFault),
-                MemoryError::EffectfulReadOnly => unreachable!(),
-            },
-        }
+        let value = op(self, address).map_err(|err| match err {
+            MemoryError::MisalignedAccess => Exception::LoadAddressMisaligned,
+            MemoryError::AccessFault => Exception::LoadAccessFault,
+        })?;
+        let registers = self.core.registers_mut(self.allocator);
+        registers.set_x(dest, value);
+        increment_pc(registers);
+        Ok(())
     }
 
     fn store_op<F>(
@@ -683,17 +678,12 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
         let registers = self.core.registers(self.allocator);
         let value = registers.x(src);
         let address = registers.x(base).wrapping_add_signed(offset);
-        match op(self, address, value) {
-            Ok(()) => {
-                increment_pc(self.core.registers_mut(self.allocator));
-                Ok(())
-            }
-            Err(err) => match err {
-                MemoryError::MisalignedAccess => Err(Exception::StoreOrAmoAddressMisaligned),
-                MemoryError::AccessFault => Err(Exception::StoreOrAmoAccessFault),
-                MemoryError::EffectfulReadOnly => unreachable!(),
-            },
-        }
+        op(self, address, value).map_err(|err| match err {
+            MemoryError::MisalignedAccess => Exception::StoreOrAmoAddressMisaligned,
+            MemoryError::AccessFault => Exception::StoreOrAmoAccessFault,
+        })?;
+        increment_pc(self.core.registers_mut(self.allocator));
+        Ok(())
     }
 
     fn csr_reg_op(

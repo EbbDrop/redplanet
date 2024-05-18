@@ -13,7 +13,7 @@ use crate::instruction::{
 use crate::registers::Registers;
 use crate::simulator::Simulatable;
 use crate::system_bus::SystemBus;
-use crate::{Alignment, Allocated, Allocator, Endianness, PrivilegeLevel, RawPrivilegeLevel};
+use crate::{Allocated, Allocator, Endianness, PrivilegeLevel, RawPrivilegeLevel};
 use execute::Executor;
 use mmu::Mmu;
 use std::fmt::Debug;
@@ -577,15 +577,11 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
     /// > increasing halfword addresses, with the lowest-addressed parcel holding the
     /// > lowest-numbered bits in the instruction specification.
     fn fetch_instruction(&self, allocator: &mut A, address: u32) -> Result<u32, Exception> {
-        if !Alignment::WORD.is_aligned(address) {
-            return Err(Exception::InstructionAddressMisaligned);
-        }
         self.mmu()
             .fetch_instruction(allocator, address)
             .map_err(|err| match err {
                 MemoryError::MisalignedAccess => Exception::InstructionAddressMisaligned,
                 MemoryError::AccessFault => Exception::InstructionAccessFault,
-                MemoryError::EffectfulReadOnly => unreachable!(),
             })
     }
 
