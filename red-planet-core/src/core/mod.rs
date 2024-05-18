@@ -209,10 +209,20 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
         *self.privilege_mode.get(allocator)
     }
 
-    /// Returns the endianness for the core's current privilege level.
-    pub fn endianness(&self, allocator: &A) -> Endianness {
+    /// Returns the current *effective privilege mode*. This is the privilege level at which load
+    /// and stores execute (but not instruction fetches).
+    pub fn effective_privilege_mode(&self, allocator: &A) -> PrivilegeLevel {
         let status = self.status.get(allocator);
-        let be = match self.privilege_mode.get(allocator) {
+        match status.mprv() {
+            true => status.mpp(),
+            false => *self.privilege_mode.get(allocator),
+        }
+    }
+
+    /// Returns the endianness of the core for the given privilege mode.
+    pub fn endianness(&self, allocator: &A, privilege_mode: PrivilegeLevel) -> Endianness {
+        let status = self.status.get(allocator);
+        let be = match privilege_mode {
             PrivilegeLevel::User => status.ube(),
             PrivilegeLevel::Supervisor => status.sbe(),
             PrivilegeLevel::Machine => status.mbe(),

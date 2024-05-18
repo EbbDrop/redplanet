@@ -1,86 +1,53 @@
 use super::Core;
 use crate::system_bus::{AccessType, SystemBus};
-use crate::{Alignment, Allocator, Endianness};
+use crate::{Alignment, Allocator, Endianness, PrivilegeLevel};
 use thiserror::Error;
 
 macro_rules! access_fns {
     ( $( $read_fn:ident, $read_debug_fn:ident, $write_fn:ident => $u:ident ),* $(,)? ) => {
         $(
             /// Invoke a read for the specified address.
-            pub fn $read_fn<const E: MemOpEndianness>(
-                &self,
-                allocator: &mut A,
-                address: u32,
-            ) -> Result<$u, MemoryError> {
+            pub fn $read_fn(&self, allocator: &mut A, address: u32) -> Result<$u, MemoryError> {
+                let privilege_level = self.core.effective_privilege_mode(allocator);
                 let mut buf = [0u8; std::mem::size_of::<$u>()];
-                self.read(&mut buf, allocator, address, false).map(|()|
-                    match E {
-                        LITTLE_ENDIAN => $u::from_le_bytes(buf),
-                        BIG_ENDIAN => $u::from_be_bytes(buf),
-                        CORE_ENDIAN => match self.core.endianness(allocator) {
-                            Endianness::LE => $u::from_le_bytes(buf),
-                            Endianness::BE => $u::from_be_bytes(buf),
-                        }
-                        _ => unreachable!(),
-                    }
-                )
+                self.read(&mut buf, allocator, address, privilege_level, false)?;
+                Ok(match self.core.endianness(allocator, privilege_level) {
+                    Endianness::LE => $u::from_le_bytes(buf),
+                    Endianness::BE => $u::from_be_bytes(buf),
+                })
             }
 
             /// Perform a debug read for the specified address.
             ///
             /// See [`Bus::read_debug`] for the difference between this method and its non-debug
             /// counterpart.
-            pub fn $read_debug_fn<const E: MemOpEndianness>(
-                &self,
-                allocator: &A,
-                address: u32,
-            ) -> Result<$u, MemoryError> {
+            pub fn $read_debug_fn(&self, allocator: &A, address: u32) -> Result<$u, MemoryError> {
+                let privilege_level = self.core.effective_privilege_mode(allocator);
                 let mut buf = [0u8; std::mem::size_of::<$u>()];
-                self.read_debug(&mut buf, allocator, address, false).map(|()|
-                    match E {
-                        LITTLE_ENDIAN => $u::from_le_bytes(buf),
-                        BIG_ENDIAN => $u::from_be_bytes(buf),
-                        CORE_ENDIAN => match self.core.endianness(allocator) {
-                            Endianness::LE => $u::from_le_bytes(buf),
-                            Endianness::BE => $u::from_be_bytes(buf),
-                        }
-                        _ => unreachable!(),
-                    }
-                )
+                self.read_debug(&mut buf, allocator, address, privilege_level, false)?;
+                Ok(match self.core.endianness(allocator, privilege_level) {
+                    Endianness::LE => $u::from_le_bytes(buf),
+                    Endianness::BE => $u::from_be_bytes(buf),
+                })
             }
 
             /// Invoke a write for the specified address.
-            pub fn $write_fn<const E: MemOpEndianness>(
+            pub fn $write_fn(
                 &self,
                 allocator: &mut A,
                 address: u32,
                 value: $u,
             ) -> Result<(), MemoryError> {
-                let buf = match E {
-                    LITTLE_ENDIAN => value.to_le_bytes(),
-                    BIG_ENDIAN => value.to_be_bytes(),
-                    CORE_ENDIAN => match self.core.endianness(allocator) {
-                        Endianness::LE => value.to_le_bytes(),
-                        Endianness::BE => value.to_be_bytes(),
-                    }
-                    _ => unreachable!(),
+                let privilege_level = self.core.effective_privilege_mode(allocator);
+                let buf = match self.core.endianness(allocator, privilege_level) {
+                    Endianness::LE => value.to_le_bytes(),
+                    Endianness::BE => value.to_be_bytes(),
                 };
-                self.write(allocator, address, &buf)
+                self.write(allocator, address, &buf, privilege_level)
             }
         )*
     };
 }
-
-pub type MemOpEndianness = u8;
-
-/// The core's current endianness mode.
-pub const CORE_ENDIAN: MemOpEndianness = 0;
-
-/// Little-endian (least significant byte at lowest address).
-pub const LITTLE_ENDIAN: MemOpEndianness = 1;
-
-/// Big-endian (most significant byte at lowest address).
-pub const BIG_ENDIAN: MemOpEndianness = 2;
 
 /// Access wrapper around a raw bus to address it as memory from this core's point of view.
 ///
@@ -97,14 +64,16 @@ pub struct Mmu<'c, A: Allocator, B: SystemBus<A>> {
 
 impl<'c, A: Allocator, B: SystemBus<A>> Mmu<'c, A, B> {
     pub fn read_byte(&self, allocator: &mut A, address: u32) -> Result<u8, MemoryError> {
+        let privilege_level = self.core.effective_privilege_mode(allocator);
         let mut buf = [0];
-        self.read(&mut buf, allocator, address, false)
+        self.read(&mut buf, allocator, address, privilege_level, false)
             .map(|()| buf[0])
     }
 
     pub fn read_byte_debug(&self, allocator: &A, address: u32) -> Result<u8, MemoryError> {
+        let privilege_level = self.core.effective_privilege_mode(allocator);
         let mut buf = [0];
-        self.read_debug(&mut buf, allocator, address, false)
+        self.read_debug(&mut buf, allocator, address, privilege_level, false)
             .map(|()| buf[0])
     }
 
@@ -114,7 +83,8 @@ impl<'c, A: Allocator, B: SystemBus<A>> Mmu<'c, A, B> {
         address: u32,
         value: u8,
     ) -> Result<(), MemoryError> {
-        self.write(allocator, address, &[value])
+        let privilege_level = self.core.effective_privilege_mode(allocator);
+        self.write(allocator, address, &[value], privilege_level)
     }
 
     access_fns! {
@@ -137,8 +107,11 @@ impl<'c, A: Allocator, B: SystemBus<A>> Mmu<'c, A, B> {
         if !Alignment::WORD.is_aligned(address) {
             return Err(MemoryError::MisalignedAccess);
         }
+        // Use the core's current privilege level, not its *effective* privilege level, since that
+        // shouldn't be used for instruction fetches.
+        let privilege_level = self.core.privilege_mode(allocator);
         let mut buf = [0u8; 4];
-        self.read(&mut buf, allocator, address, true)
+        self.read(&mut buf, allocator, address, privilege_level, true)
             .map(|()| u32::from_le_bytes(buf))
     }
 
@@ -147,13 +120,14 @@ impl<'c, A: Allocator, B: SystemBus<A>> Mmu<'c, A, B> {
         buf: &mut [u8],
         allocator: &mut A,
         address: u32,
+        privilege_level: PrivilegeLevel,
         execute: bool,
     ) -> Result<(), MemoryError> {
         let access_type = match execute {
             true => AccessType::Execute,
             false => AccessType::Read,
         };
-        let physical_address = self.access(address, buf.len(), access_type)?;
+        let physical_address = self.access(address, buf.len(), access_type, privilege_level)?;
         self.core.system_bus.read(buf, allocator, physical_address);
         Ok(())
     }
@@ -163,21 +137,29 @@ impl<'c, A: Allocator, B: SystemBus<A>> Mmu<'c, A, B> {
         buf: &mut [u8],
         allocator: &A,
         address: u32,
+        privilege_level: PrivilegeLevel,
         execute: bool,
     ) -> Result<(), MemoryError> {
         let access_type = match execute {
             true => AccessType::Execute,
             false => AccessType::Read,
         };
-        let physical_address = self.access(address, buf.len(), access_type)?;
+        let physical_address = self.access(address, buf.len(), access_type, privilege_level)?;
         self.core
             .system_bus
             .read_debug(buf, allocator, physical_address);
         Ok(())
     }
 
-    fn write(&self, allocator: &mut A, address: u32, buf: &[u8]) -> Result<(), MemoryError> {
-        let physical_address = self.access(address, buf.len(), AccessType::Write)?;
+    fn write(
+        &self,
+        allocator: &mut A,
+        address: u32,
+        buf: &[u8],
+        privilege_level: PrivilegeLevel,
+    ) -> Result<(), MemoryError> {
+        let physical_address =
+            self.access(address, buf.len(), AccessType::Write, privilege_level)?;
         self.core.system_bus.write(allocator, physical_address, buf);
         Ok(())
     }
@@ -189,6 +171,7 @@ impl<'c, A: Allocator, B: SystemBus<A>> Mmu<'c, A, B> {
         address: u32,
         size: usize,
         access_type: AccessType,
+        privilege_level: PrivilegeLevel,
     ) -> Result<u32, MemoryError> {
         let size = u32::try_from(size).map_err(|_| MemoryError::AccessFault)?;
 
@@ -200,6 +183,9 @@ impl<'c, A: Allocator, B: SystemBus<A>> Mmu<'c, A, B> {
         {
             return Err(MemoryError::MisalignedAccess);
         }
+
+        // TODO: Translation and PMP checks should depend on privilege level.
+        let _ = privilege_level;
 
         let physical_address = self.core.translate_address(address);
 

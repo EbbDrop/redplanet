@@ -1,4 +1,4 @@
-use super::mmu::{MemoryError, CORE_ENDIAN};
+use super::mmu::MemoryError;
 use crate::core::{Core, CsrSpecifier, Exception, ExecutionResult};
 use crate::instruction::{CsrOp, FenceOrderCombination};
 use crate::registers::{Registers, Specifier};
@@ -328,7 +328,7 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
         self.load_op(dest, base, offset, |this, address| {
             this.core
                 .mmu()
-                .read_halfword::<CORE_ENDIAN>(this.allocator, address)
+                .read_halfword(this.allocator, address)
                 .map(|value| value as i16 as u32)
         })
     }
@@ -337,16 +337,14 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
         self.load_op(dest, base, offset, |this, address| {
             this.core
                 .mmu()
-                .read_halfword::<CORE_ENDIAN>(this.allocator, address)
+                .read_halfword(this.allocator, address)
                 .map(|value| value as u32)
         })
     }
 
     pub fn lw(&mut self, dest: Specifier, base: Specifier, offset: i32) -> ExecutionResult {
         self.load_op(dest, base, offset, |this, address| {
-            this.core
-                .mmu()
-                .read_word::<CORE_ENDIAN>(this.allocator, address)
+            this.core.mmu().read_word(this.allocator, address)
         })
     }
 
@@ -362,15 +360,13 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
         self.store_op(src, base, offset, |this, address, value| {
             this.core
                 .mmu()
-                .write_halfword::<CORE_ENDIAN>(this.allocator, address, value as u16)
+                .write_halfword(this.allocator, address, value as u16)
         })
     }
 
     pub fn sw(&mut self, src: Specifier, base: Specifier, offset: i32) -> ExecutionResult {
         self.store_op(src, base, offset, |this, address, value| {
-            this.core
-                .mmu()
-                .write_word::<CORE_ENDIAN>(this.allocator, address, value)
+            this.core.mmu().write_word(this.allocator, address, value)
         })
     }
 
