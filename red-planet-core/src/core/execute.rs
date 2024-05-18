@@ -734,10 +734,10 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
         csr: CsrSpecifier,
         src_value: Option<u32>,
     ) -> ExecutionResult {
-        // Read and store the core's current privilege level, since the CSR read may cause the
-        // privilege level to be changed as a side-effect. This CSR operation should be atomic, so
+        // Read and store the core's current privilege mode, since the CSR read may cause the
+        // privilege mode to be changed as a side-effect. This CSR operation should be atomic, so
         // both the read and write should be performed at the same, original privilege level.
-        let privilege_level = self.core.privilege_level(self.allocator);
+        let privilege_level = self.core.privilege_mode(self.allocator);
         if op != CsrOp::ReadWrite || dest != Specifier::X0 {
             let old_value = self
                 .core

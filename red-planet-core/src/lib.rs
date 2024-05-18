@@ -51,6 +51,10 @@ impl RawPrivilegeLevel {
             _ => panic!("out of range u2 used"),
         }
     }
+
+    pub fn is_reserved(self) -> bool {
+        matches!(self, Self::Reserved)
+    }
 }
 
 impl fmt::Display for RawPrivilegeLevel {

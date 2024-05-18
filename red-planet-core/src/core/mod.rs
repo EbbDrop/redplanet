@@ -4,6 +4,7 @@ mod counters;
 pub mod csr;
 mod execute;
 mod mmu;
+mod status;
 
 use crate::core::mmu::MemoryError;
 use crate::instruction::{
@@ -20,6 +21,7 @@ use thiserror::Error;
 
 pub use counters::Counters;
 pub use csr::CsrSpecifier;
+pub use status::Status;
 
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -100,8 +102,8 @@ pub struct Core<A: Allocator, B: SystemBus<A>> {
     /// These are allocated together, since at least a subset of them will be updated every tick,
     /// and most likely more will be updated in between snapshots.
     counters: Allocated<A, Counters>,
-    privilege_level: Allocated<A, PrivilegeLevel>,
-    endianness: Allocated<A, Endianness>,
+    status: Allocated<A, Status>,
+    privilege_mode: Allocated<A, PrivilegeLevel>,
 }
 
 impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
@@ -154,8 +156,8 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
             system_bus,
             registers,
             counters: Allocated::new(allocator, Counters::new()),
-            privilege_level: Allocated::new(allocator, PrivilegeLevel::Machine),
-            endianness: Allocated::new(allocator, Endianness::LE),
+            status: Allocated::new(allocator, Status::new()),
+            privilege_mode: Allocated::new(allocator, PrivilegeLevel::Machine),
         }
     }
 
@@ -184,13 +186,12 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
         self.registers.get_mut(allocator)
     }
 
-    pub fn privilege_level(&self, allocator: &A) -> PrivilegeLevel {
-        *self.privilege_level.get(allocator)
+    pub fn status<'a>(&self, allocator: &'a A) -> &'a Status {
+        self.status.get(allocator)
     }
 
-    /// Returns the endianness of the core in the current privilege mode.
-    pub fn endianness(&self, allocator: &A) -> Endianness {
-        *self.endianness.get(allocator)
+    pub fn status_mut<'a>(&self, allocator: &'a mut A) -> &'a mut Status {
+        self.status.get_mut(allocator)
     }
 
     pub fn counters<'a>(&self, allocator: &'a A) -> &'a Counters {
@@ -199,6 +200,27 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
 
     pub fn counters_mut<'a>(&self, allocator: &'a mut A) -> &'a mut Counters {
         self.counters.get_mut(allocator)
+    }
+
+    /// Returns the current privilege mode the core is in.
+    ///
+    /// See also [`PrivilegeLevel`].
+    pub fn privilege_mode(&self, allocator: &A) -> PrivilegeLevel {
+        *self.privilege_mode.get(allocator)
+    }
+
+    /// Returns the endianness for the core's current privilege level.
+    pub fn endianness(&self, allocator: &A) -> Endianness {
+        let status = self.status.get(allocator);
+        let be = match self.privilege_mode.get(allocator) {
+            PrivilegeLevel::User => status.ube(),
+            PrivilegeLevel::Supervisor => status.sbe(),
+            PrivilegeLevel::Machine => status.mbe(),
+        };
+        match be {
+            true => Endianness::BE,
+            false => Endianness::LE,
+        }
     }
 
     /// Read the value of a CSR by its specifier.
