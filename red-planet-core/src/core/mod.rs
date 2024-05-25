@@ -1,8 +1,10 @@
 //! Provides a simulatable RV32I core implementation.
 
+mod control;
 mod counters;
 pub mod csr;
 mod execute;
+mod mconfig;
 mod mmu;
 mod status;
 mod trap;
@@ -20,8 +22,11 @@ use mmu::Mmu;
 use std::fmt::Debug;
 use thiserror::Error;
 
+// TODO: Re-evaluate which of those should actually be public.
+pub use control::Control;
 pub use counters::Counters;
 pub use csr::CsrSpecifier;
+pub use mconfig::Mconfig;
 pub use status::Status;
 
 use self::trap::Trap;
@@ -108,6 +113,8 @@ pub struct Core<A: Allocator, B: SystemBus<A>> {
     counters: Allocated<A, Counters>,
     status: Allocated<A, Status>,
     privilege_mode: Allocated<A, PrivilegeLevel>,
+    control: Allocated<A, Control>,
+    mconfig: Allocated<A, Mconfig>,
 }
 
 impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
@@ -152,6 +159,12 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
     /// > indicate that the field is not implemented. The Implementation value should reflect the
     /// > design of the RISC-V processor itself and not any surrounding system.
     pub const MIMPID: u32 = 0;
+    /// The mconfigptr CSR is set to 0 to indicate the configuration data structure does not exists.
+    ///
+    /// > mconfigptr is an MXLEN-bit read-only CSR [...] that holds the physical address of a
+    /// > configuration data structure. Software can traverse this data structure to discover
+    /// > information about the harts, the platform, and their configuration.
+    pub const MCONFIGPTR: u32 = 0;
 
     pub fn new(allocator: &mut A, system_bus: B, config: Config) -> Self {
         let registers = Allocated::new(allocator, Registers::new());
@@ -163,6 +176,8 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
             counters: Allocated::new(allocator, Counters::new()),
             status: Allocated::new(allocator, Status::new()),
             privilege_mode: Allocated::new(allocator, PrivilegeLevel::Machine),
+            control: Allocated::new(allocator, Control::new()),
+            mconfig: Allocated::new(allocator, Mconfig::new()),
         }
     }
 
@@ -259,6 +274,7 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
             csr::MVENDORID => Ok(Self::MVENDORID),
             csr::MARCHID => Ok(Self::MARCHID),
             csr::MIMPID => Ok(Self::MIMPID),
+            csr::MCONFIGPTR => Ok(Self::MCONFIGPTR),
             csr::MHARTID => Ok(self.config.hart_id),
             //
             // Machine trap handling
@@ -311,11 +327,29 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
                 let offset = 3 + (specifier - csr::MHPMCOUNTER3H);
                 Ok(self.counters.get(allocator).read_mhpmcounterh(offset as u8))
             }
+            //
+            // Machine counter setup
+            //
             csr::MHPMEVENT3..=csr::MHPMEVENT31 => {
                 let offset = 3 + (specifier - csr::MHPMEVENT3);
                 Ok(self.counters.get(allocator).read_mhpmevent(offset as u8))
             }
-            _ => todo!(),
+            csr::MCOUNTINHIBIT => Ok(self.control.get(allocator).mcountinhibit.read()),
+            //
+            // Trap setup registers
+            //
+            csr::MTVEC => Ok(self.control.get(allocator).mtvec.read()),
+            csr::MEDELEG => Ok(self.control.get(allocator).medeleg.read()),
+            csr::MCOUNTEREN => Ok(self.control.get(allocator).mcounteren.read()),
+            csr::STVEC => Ok(self.control.get(allocator).stvec.read()),
+            csr::SCOUNTEREN => Ok(self.control.get(allocator).scounteren.read()),
+            //
+            // Machine configuration registers
+            //
+            csr::MENVCFG => Ok(self.mconfig.get(allocator).read_menvcfg()),
+            csr::MENVCFGH => Ok(self.mconfig.get(allocator).read_menvcfgh()),
+            csr::MSECCFG | csr::MSECCFGH => Err(CsrAccessError::CsrUnsupported(specifier)),
+            _ => Err(CsrAccessError::CsrUnsupported(specifier)),
         }
     }
 
@@ -327,8 +361,7 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
         value: u32,
         mask: u32,
     ) -> Result<(), CsrWriteError> {
-        self.check_csr_access(allocator, specifier, privilege_level)
-            .map_err(CsrWriteError::AccessError)?;
+        self.check_csr_access(allocator, specifier, privilege_level)?;
         if csr::is_read_only(specifier) {
             return Err(CsrWriteError::WriteToReadOnly);
         }
@@ -336,11 +369,12 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
             //
             // Machine info registers
             //
-            // The machine info registers are read-only WARL in this implementation.
+            // The machine info registers are read-only or read-only WARL in this implementation.
             csr::MISA => {}
             csr::MVENDORID => {}
             csr::MARCHID => {}
             csr::MIMPID => {}
+            csr::MCONFIGPTR => {}
             csr::MHARTID => {}
             //
             // Machine trap handling
@@ -382,22 +416,52 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
             csr::MHPMCOUNTER3..=csr::MHPMCOUNTER31 => {
                 let offset = 3 + (specifier - csr::MHPMCOUNTER3);
                 self.counters
-                    .get(allocator)
+                    .get_mut(allocator)
                     .write_mhpmcounter(offset as u8, value, mask);
             }
             csr::MHPMCOUNTER3H..=csr::MHPMCOUNTER31H => {
                 let offset = 3 + (specifier - csr::MHPMCOUNTER3H);
                 self.counters
-                    .get(allocator)
+                    .get_mut(allocator)
                     .write_mhpmcounterh(offset as u8, value, mask);
             }
+            //
+            // Machine counter setup
+            //
             csr::MHPMEVENT3..=csr::MHPMEVENT31 => {
                 let offset = 3 + (specifier - csr::MHPMEVENT3);
                 self.counters
-                    .get(allocator)
+                    .get_mut(allocator)
                     .write_mhpmevent(offset as u8, value, mask);
             }
-            _ => todo!(),
+            csr::MCOUNTINHIBIT => self
+                .control
+                .get_mut(allocator)
+                .mcountinhibit
+                .write(value, mask),
+            //
+            // Trap setup registers
+            //
+            csr::MTVEC => self.control.get_mut(allocator).mtvec.write(value, mask),
+            csr::MEDELEG => self.control.get_mut(allocator).medeleg.write(value, mask),
+            csr::MCOUNTEREN => self
+                .control
+                .get_mut(allocator)
+                .mcounteren
+                .write(value, mask),
+            csr::STVEC => self.control.get_mut(allocator).stvec.write(value, mask),
+            csr::SCOUNTEREN => self
+                .control
+                .get_mut(allocator)
+                .scounteren
+                .write(value, mask),
+            //
+            // Machine configuration registers
+            //
+            csr::MENVCFG => self.mconfig.get_mut(allocator).write_menvcfg(value, mask),
+            csr::MENVCFGH => self.mconfig.get_mut(allocator).write_menvcfgh(value, mask),
+            csr::MSECCFG | csr::MSECCFGH => Err(CsrAccessError::CsrUnsupported(specifier))?,
+            _ => Err(CsrAccessError::CsrUnsupported(specifier))?,
         }
         Ok(())
     }
@@ -702,6 +766,12 @@ pub enum CsrWriteError {
     WriteToReadOnly,
 }
 
+impl From<CsrAccessError> for CsrWriteError {
+    fn from(value: CsrAccessError) -> Self {
+        Self::AccessError(value)
+    }
+}
+
 /// Result of executing a single instruction. [`Ok`] if execution went normal, [`Err`] if an
 /// exception occurred.
 pub type ExecutionResult = Result<(), Exception>;
@@ -733,7 +803,7 @@ pub enum Exception {
 
 impl Exception {
     /// Returns the exception code (cause) for this exception.
-    pub fn code(&self) -> u32 {
+    pub const fn code(&self) -> u32 {
         match self {
             Self::InstructionAddressMisaligned => 0,
             Self::InstructionAccessFault => 1,

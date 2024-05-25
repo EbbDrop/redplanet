@@ -160,7 +160,7 @@ impl Counters {
         0
     }
 
-    pub fn write_mhpmcounter(&self, n: u8, value: u32, mask: u32) {
+    pub fn write_mhpmcounter(&mut self, n: u8, value: u32, mask: u32) {
         if !(3..=31).contains(&n) {
             panic!("invalid hpm counter number: {n}");
         }
@@ -176,7 +176,7 @@ impl Counters {
         0
     }
 
-    pub fn write_mhpmcounterh(&self, n: u8, value: u32, mask: u32) {
+    pub fn write_mhpmcounterh(&mut self, n: u8, value: u32, mask: u32) {
         if !(3..=31).contains(&n) {
             panic!("invalid hpm counter number: {n}");
         }
@@ -192,7 +192,7 @@ impl Counters {
         0
     }
 
-    pub fn write_mhpmevent(&self, n: u8, value: u32, mask: u32) {
+    pub fn write_mhpmevent(&mut self, n: u8, value: u32, mask: u32) {
         if !(3..=31).contains(&n) {
             panic!("invalid hpm event number: {n}");
         }
