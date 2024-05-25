@@ -5,6 +5,7 @@ pub mod csr;
 mod execute;
 mod mmu;
 mod status;
+mod trap;
 
 use crate::core::mmu::MemoryError;
 use crate::instruction::{
@@ -22,6 +23,8 @@ use thiserror::Error;
 pub use counters::Counters;
 pub use csr::CsrSpecifier;
 pub use status::Status;
+
+use self::trap::Trap;
 
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -97,6 +100,7 @@ pub struct Core<A: Allocator, B: SystemBus<A>> {
     config: Config,
     system_bus: B,
     registers: Allocated<A, Registers>,
+    trap: Allocated<A, Trap>,
     /// Index in the allocator where all CSR counter registers are stored.
     ///
     /// These are allocated together, since at least a subset of them will be updated every tick,
@@ -155,6 +159,7 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
             config,
             system_bus,
             registers,
+            trap: Allocated::new(allocator, Trap::new()),
             counters: Allocated::new(allocator, Counters::new()),
             status: Allocated::new(allocator, Status::new()),
             privilege_mode: Allocated::new(allocator, PrivilegeLevel::Machine),
@@ -256,6 +261,24 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
             csr::MIMPID => Ok(Self::MIMPID),
             csr::MHARTID => Ok(self.config.hart_id),
             //
+            // Machine trap handling
+            //
+            csr::MSCRATCH => Ok(self.trap.get(allocator).read_mscratch()),
+            csr::MEPC => Ok(self.trap.get(allocator).read_mepc()),
+            csr::MCAUSE => Ok(self.trap.get(allocator).read_mcause()),
+            csr::MTVAL => Ok(self.trap.get(allocator).read_mtval()),
+            csr::MIP => todo!("must be able to write to SEIP"),
+            csr::MTINST => Ok(self.trap.get(allocator).read_mtinst()),
+            csr::MTVAL2 => Ok(self.trap.get(allocator).read_mtval2()),
+            //
+            // supervisor trap handling
+            //
+            csr::SSCRATCH => Ok(self.trap.get(allocator).read_sscratch()),
+            csr::SEPC => Ok(self.trap.get(allocator).read_sepc()),
+            csr::SCAUSE => Ok(self.trap.get(allocator).read_scause()),
+            csr::STVAL => Ok(self.trap.get(allocator).read_stval()),
+            csr::SIP => todo!(),
+            //
             // Counter registers
             //
             // cycle
@@ -319,6 +342,24 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
             csr::MARCHID => {}
             csr::MIMPID => {}
             csr::MHARTID => {}
+            //
+            // Machine trap handling
+            //
+            csr::MSCRATCH => self.trap.get_mut(allocator).write_mscratch(value, mask),
+            csr::MEPC => self.trap.get_mut(allocator).write_mepc(value, mask),
+            csr::MCAUSE => self.trap.get_mut(allocator).write_mcause(value, mask),
+            csr::MTVAL => self.trap.get_mut(allocator).write_mtval(value, mask),
+            csr::MIP => todo!("must be able to write to SEIP"),
+            csr::MTINST => self.trap.get_mut(allocator).write_mtinst(value, mask),
+            csr::MTVAL2 => self.trap.get_mut(allocator).write_mtval2(value, mask),
+            //
+            // supervisor trap handling
+            //
+            csr::SSCRATCH => self.trap.get_mut(allocator).write_sscratch(value, mask),
+            csr::SEPC => self.trap.get_mut(allocator).write_sepc(value, mask),
+            csr::SCAUSE => self.trap.get_mut(allocator).write_scause(value, mask),
+            csr::STVAL => self.trap.get_mut(allocator).write_stval(value, mask),
+            csr::SIP => todo!(),
             //
             // Counter registers
             //

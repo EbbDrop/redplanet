@@ -45,7 +45,7 @@ impl Status {
             self.set_sie(updated_bits[idx::SIE]);
         }
         if mask_bits[idx::MIE] {
-            self.set_sie(updated_bits[idx::MIE]);
+            self.set_mie(updated_bits[idx::MIE]);
         }
         if mask_bits[idx::SPIE] {
             self.set_spie(updated_bits[idx::SPIE]);
