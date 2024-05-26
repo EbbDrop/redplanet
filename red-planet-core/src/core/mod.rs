@@ -17,20 +17,17 @@ use crate::registers::Registers;
 use crate::simulator::Simulatable;
 use crate::system_bus::SystemBus;
 use crate::{Allocated, Allocator, Endianness, PrivilegeLevel, RawPrivilegeLevel};
+use control::{Control, VectorMode};
+use counters::Counters;
 use execute::Executor;
+use mconfig::Mconfig;
 use mmu::Mmu;
+use status::Status;
 use std::fmt::Debug;
 use thiserror::Error;
+use trap::{Trap, TrapCause};
 
-// TODO: Re-evaluate which of those should actually be public.
-pub use control::Control;
-pub use counters::Counters;
 pub use csr::CsrSpecifier;
-pub use mconfig::Mconfig;
-pub use status::Status;
-
-use self::control::VectorMode;
-use self::trap::{Trap, TrapCause};
 
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -326,41 +323,41 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
             // Counter registers
             //
             // cycle
-            csr::CYCLE => Ok(self.counters.get(allocator).read_cycle()),
-            csr::CYCLEH => Ok(self.counters.get(allocator).read_cycleh()),
-            csr::MCYCLE => Ok(self.counters.get(allocator).read_mcycle()),
-            csr::MCYCLEH => Ok(self.counters.get(allocator).read_mcycleh()),
+            csr::CYCLE => Ok(self.read_cycle(allocator)),
+            csr::CYCLEH => Ok(self.read_cycleh(allocator)),
+            csr::MCYCLE => Ok(self.read_mcycle(allocator)),
+            csr::MCYCLEH => Ok(self.read_mcycleh(allocator)),
             // instret
-            csr::INSTRET => Ok(self.counters.get(allocator).read_instret()),
-            csr::INSTRETH => Ok(self.counters.get(allocator).read_instreth()),
-            csr::MINSTRET => Ok(self.counters.get(allocator).read_minstret()),
-            csr::MINSTRETH => Ok(self.counters.get(allocator).read_minstreth()),
+            csr::INSTRET => Ok(self.read_instret(allocator)),
+            csr::INSTRETH => Ok(self.read_instreth(allocator)),
+            csr::MINSTRET => Ok(self.read_minstret(allocator)),
+            csr::MINSTRETH => Ok(self.read_minstreth(allocator)),
             // time
             csr::TIME => Ok(self.read_mtime(allocator) as u32),
             csr::TIMEH => Ok((self.read_mtime(allocator) >> 32) as u32),
             // hpmcounter
             csr::HPMCOUNTER3..=csr::HPMCOUNTER31 => {
                 let offset = 3 + (specifier - csr::HPMCOUNTER3);
-                Ok(self.counters.get(allocator).read_hpmcounter(offset as u8))
+                Ok(self.read_hpmcounter(allocator, offset as u8))
             }
             csr::HPMCOUNTER3H..=csr::HPMCOUNTER31H => {
                 let offset = 3 + (specifier - csr::HPMCOUNTER3H);
-                Ok(self.counters.get(allocator).read_hpmcounterh(offset as u8))
+                Ok(self.read_hpmcounterh(allocator, offset as u8))
             }
             csr::MHPMCOUNTER3..=csr::MHPMCOUNTER31 => {
                 let offset = 3 + (specifier - csr::MHPMCOUNTER3);
-                Ok(self.counters.get(allocator).read_mhpmcounter(offset as u8))
+                Ok(self.read_mhpmcounter(allocator, offset as u8))
             }
             csr::MHPMCOUNTER3H..=csr::MHPMCOUNTER31H => {
                 let offset = 3 + (specifier - csr::MHPMCOUNTER3H);
-                Ok(self.counters.get(allocator).read_mhpmcounterh(offset as u8))
+                Ok(self.read_mhpmcounterh(allocator, offset as u8))
             }
             //
             // Machine counter setup
             //
             csr::MHPMEVENT3..=csr::MHPMEVENT31 => {
                 let offset = 3 + (specifier - csr::MHPMEVENT3);
-                Ok(self.counters.get(allocator).read_mhpmevent(offset as u8))
+                Ok(self.read_mhpmevent(allocator, offset as u8))
             }
             csr::MCOUNTINHIBIT => Ok(self.control.get(allocator).mcountinhibit.read()),
             //
@@ -443,33 +440,24 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
             | csr::TIMEH
             | csr::HPMCOUNTER3..=csr::HPMCOUNTER31
             | csr::HPMCOUNTER3H..=csr::HPMCOUNTER31H => {}
-            csr::MCYCLE => self.counters.get_mut(allocator).write_mcycle(value, mask),
-            csr::MCYCLEH => self.counters.get_mut(allocator).write_mcycleh(value, mask),
-            csr::MINSTRET => self.counters.get_mut(allocator).write_minstret(value, mask),
-            csr::MINSTRETH => self
-                .counters
-                .get_mut(allocator)
-                .write_minstreth(value, mask),
+            csr::MCYCLE => self.write_mcycle(allocator, value, mask),
+            csr::MCYCLEH => self.write_mcycleh(allocator, value, mask),
+            csr::MINSTRET => self.write_minstret(allocator, value, mask),
+            csr::MINSTRETH => self.write_minstreth(allocator, value, mask),
             csr::MHPMCOUNTER3..=csr::MHPMCOUNTER31 => {
                 let offset = 3 + (specifier - csr::MHPMCOUNTER3);
-                self.counters
-                    .get_mut(allocator)
-                    .write_mhpmcounter(offset as u8, value, mask);
+                self.write_mhpmcounter(allocator, offset as u8, value, mask);
             }
             csr::MHPMCOUNTER3H..=csr::MHPMCOUNTER31H => {
                 let offset = 3 + (specifier - csr::MHPMCOUNTER3H);
-                self.counters
-                    .get_mut(allocator)
-                    .write_mhpmcounterh(offset as u8, value, mask);
+                self.write_mhpmcounterh(allocator, offset as u8, value, mask);
             }
             //
             // Machine counter setup
             //
             csr::MHPMEVENT3..=csr::MHPMEVENT31 => {
                 let offset = 3 + (specifier - csr::MHPMEVENT3);
-                self.counters
-                    .get_mut(allocator)
-                    .write_mhpmevent(offset as u8, value, mask);
+                self.write_mhpmevent(allocator, offset as u8, value, mask);
             }
             csr::MCOUNTINHIBIT => self
                 .control

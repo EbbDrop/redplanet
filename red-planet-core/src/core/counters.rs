@@ -1,3 +1,9 @@
+use space_time::allocator::Allocator;
+
+use crate::system_bus::SystemBus;
+
+use super::Core;
+
 /// Collection of counter registers and associated read/write logic.
 ///
 /// > RISC-V ISAs provide a set of up to 32×64-bit performance counters and timers that are
@@ -71,7 +77,7 @@ impl Counters {
         }
     }
 
-    pub(super) fn increment_cycle(&mut self) {
+    pub fn increment_cycle(&mut self) {
         if self.skip_next_mcycle_increment {
             self.skip_next_mcycle_increment = false;
             return;
@@ -82,7 +88,7 @@ impl Counters {
         }
     }
 
-    pub(super) fn increment_instret(&mut self) {
+    pub fn increment_instret(&mut self) {
         if self.skip_next_minstret_increment {
             self.skip_next_minstret_increment = false;
             return;
@@ -92,75 +98,83 @@ impl Counters {
             self.minstreth = self.minstreth.wrapping_add(1);
         }
     }
+}
 
-    pub fn read_cycle(&self) -> u32 {
-        self.read_mcycle()
+impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
+    pub fn read_cycle(&self, allocator: &mut A) -> u32 {
+        self.read_mcycle(allocator)
     }
 
-    pub fn read_cycleh(&self) -> u32 {
-        self.read_mcycleh()
+    pub fn read_cycleh(&self, allocator: &mut A) -> u32 {
+        self.read_mcycleh(allocator)
     }
 
-    pub fn read_instret(&self) -> u32 {
-        self.read_minstret()
+    pub fn read_instret(&self, allocator: &mut A) -> u32 {
+        self.read_minstret(allocator)
     }
 
-    pub fn read_instreth(&self) -> u32 {
-        self.read_minstreth()
+    pub fn read_instreth(&self, allocator: &mut A) -> u32 {
+        self.read_minstreth(allocator)
     }
 
-    pub fn read_hpmcounter(&self, n: u8) -> u32 {
-        self.read_mhpmcounter(n)
+    pub fn read_hpmcounter(&self, allocator: &mut A, n: u8) -> u32 {
+        self.read_mhpmcounter(allocator, n)
     }
 
-    pub fn read_hpmcounterh(&self, n: u8) -> u32 {
-        self.read_mhpmcounterh(n)
+    pub fn read_hpmcounterh(&self, allocator: &mut A, n: u8) -> u32 {
+        self.read_mhpmcounterh(allocator, n)
     }
 
-    pub fn read_mcycle(&self) -> u32 {
-        self.mcycle
+    pub fn read_mcycle(&self, allocator: &mut A) -> u32 {
+        self.counters.get(allocator).mcycle
     }
 
-    pub fn write_mcycle(&mut self, value: u32, mask: u32) {
-        self.mcycle = self.mcycle & !mask | value & mask;
-        self.skip_next_mcycle_increment = true;
+    pub fn write_mcycle(&self, allocator: &mut A, value: u32, mask: u32) {
+        let counters = self.counters.get_mut(allocator);
+        counters.mcycle = counters.mcycle & !mask | value & mask;
+        counters.skip_next_mcycle_increment = true;
     }
 
-    pub fn read_mcycleh(&self) -> u32 {
-        self.mcycleh
+    pub fn read_mcycleh(&self, allocator: &mut A) -> u32 {
+        self.counters.get(allocator).mcycleh
     }
 
-    pub fn write_mcycleh(&mut self, value: u32, mask: u32) {
-        self.mcycleh = self.mcycleh & !mask | value & mask;
-        self.skip_next_mcycle_increment = true;
+    pub fn write_mcycleh(&self, allocator: &mut A, value: u32, mask: u32) {
+        let counters = self.counters.get_mut(allocator);
+        counters.mcycleh = counters.mcycleh & !mask | value & mask;
+        counters.skip_next_mcycle_increment = true;
     }
 
-    pub fn read_minstret(&self) -> u32 {
-        self.minstret
+    pub fn read_minstret(&self, allocator: &mut A) -> u32 {
+        self.counters.get(allocator).minstret
     }
 
-    pub fn write_minstret(&mut self, value: u32, mask: u32) {
-        self.minstret = self.minstret & !mask | value & mask;
-        self.skip_next_minstret_increment = true;
+    pub fn write_minstret(&self, allocator: &mut A, value: u32, mask: u32) {
+        let counters = self.counters.get_mut(allocator);
+        counters.minstret = counters.minstret & !mask | value & mask;
+        counters.skip_next_minstret_increment = true;
     }
 
-    pub fn read_minstreth(&self) -> u32 {
-        self.minstreth
+    pub fn read_minstreth(&self, allocator: &mut A) -> u32 {
+        self.counters.get(allocator).minstreth
     }
 
-    pub fn write_minstreth(&mut self, value: u32, mask: u32) {
-        self.minstreth = self.minstreth & !mask | value & mask;
-        self.skip_next_minstret_increment = true;
+    pub fn write_minstreth(&self, allocator: &mut A, value: u32, mask: u32) {
+        let counters = self.counters.get_mut(allocator);
+        counters.minstreth = counters.minstreth & !mask | value & mask;
+        counters.skip_next_minstret_increment = true;
     }
 
-    pub fn read_mhpmcounter(&self, n: u8) -> u32 {
+    pub fn read_mhpmcounter(&self, allocator: &mut A, n: u8) -> u32 {
+        let _ = allocator;
         if !(3..=31).contains(&n) {
             panic!("invalid hpm counter number: {n}");
         }
         0
     }
 
-    pub fn write_mhpmcounter(&mut self, n: u8, value: u32, mask: u32) {
+    pub fn write_mhpmcounter(&self, allocator: &mut A, n: u8, value: u32, mask: u32) {
+        let _ = allocator;
         if !(3..=31).contains(&n) {
             panic!("invalid hpm counter number: {n}");
         }
@@ -169,14 +183,16 @@ impl Counters {
         let _ = mask;
     }
 
-    pub fn read_mhpmcounterh(&self, n: u8) -> u32 {
+    pub fn read_mhpmcounterh(&self, allocator: &mut A, n: u8) -> u32 {
+        let _ = allocator;
         if !(3..=31).contains(&n) {
             panic!("invalid hpm counter number: {n}");
         }
         0
     }
 
-    pub fn write_mhpmcounterh(&mut self, n: u8, value: u32, mask: u32) {
+    pub fn write_mhpmcounterh(&self, allocator: &mut A, n: u8, value: u32, mask: u32) {
+        let _ = allocator;
         if !(3..=31).contains(&n) {
             panic!("invalid hpm counter number: {n}");
         }
@@ -185,14 +201,16 @@ impl Counters {
         let _ = mask;
     }
 
-    pub fn read_mhpmevent(&self, n: u8) -> u32 {
+    pub fn read_mhpmevent(&self, allocator: &mut A, n: u8) -> u32 {
+        let _ = allocator;
         if !(3..=31).contains(&n) {
             panic!("invalid hpm event number: {n}");
         }
         0
     }
 
-    pub fn write_mhpmevent(&mut self, n: u8, value: u32, mask: u32) {
+    pub fn write_mhpmevent(&self, allocator: &mut A, n: u8, value: u32, mask: u32) {
+        let _ = allocator;
         if !(3..=31).contains(&n) {
             panic!("invalid hpm event number: {n}");
         }
