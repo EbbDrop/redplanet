@@ -9,7 +9,7 @@ use crate::resources::rom::Rom;
 use crate::resources::uart::Uart;
 use crate::simulator::Simulatable;
 use crate::system_bus::AccessType;
-use crate::{two_way_addr_map, Allocator, Endianness};
+use crate::{two_way_addr_map, Allocated, Allocator, Endianness};
 use std::ops::Deref;
 use std::rc::Rc;
 use system_bus::{Resource, SystemBus};
@@ -53,6 +53,7 @@ impl<A: Allocator> Board<A> {
     pub fn new(allocator: &mut A, config: Config) -> Self {
         let memory_map = two_way_addr_map! {
             [0x0000_1000, 0x0000_FFFF] <=> Resource::Mrom,
+            [0x0010_0000, 0x0010_0003] <=> Resource::PowerDown,
             [0x1000_0000, 0x1000_00FF] <=> Resource::Uart0,
             [0x2000_0000, 0x23FF_FFFF] <=> Resource::Flash,
             [0x8000_0000, 0xFFFF_FFFF] <=> Resource::Dram,
@@ -90,12 +91,15 @@ impl<A: Allocator> Board<A> {
 
         let uart0 = Uart::new(allocator);
 
+        let power_down = PowerDown::new(allocator);
+
         let system_bus = Rc::new(SystemBus {
             memory_map,
             mrom,
             uart0,
             flash,
             dram,
+            power_down,
         });
 
         let core = Core::new(
@@ -144,6 +148,15 @@ impl<A: Allocator> Board<A> {
         self.system_bus.uart0.reset(allocator);
     }
 
+    /// Power down the board. This makes ticks do nothing.
+    pub fn power_down(&self, allocator: &mut A) {
+        self.system_bus.power_down.power_down(allocator);
+    }
+
+    pub fn is_powered_down(&self, allocator: &A) -> bool {
+        self.system_bus.power_down.is_powered_down(allocator)
+    }
+
     /// Write a byte buffer into the physical address space.
     ///
     /// Bytes written to vacant, read-only, or I/O regions are ignored.
@@ -172,6 +185,7 @@ impl<A: Allocator> Board<A> {
                 Resource::Flash => {}
                 // Skip MMIO
                 Resource::Uart0 => {}
+                Resource::PowerDown => {}
             }
         }
     }
@@ -206,5 +220,42 @@ impl<A: Allocator> Bus<A> for Interconnect<A> {
 impl<A: Allocator> crate::system_bus::SystemBus<A> for Interconnect<A> {
     fn accepts(&self, address: u32, size: usize, access_type: AccessType) -> bool {
         self.deref().accepts(address, size, access_type)
+    }
+}
+
+#[derive(Debug)]
+struct PowerDown<A: Allocator>(Allocated<A, bool>);
+
+impl<A: Allocator> PowerDown<A> {
+    fn new(allocator: &mut A) -> Self {
+        Self(Allocated::new(allocator, false))
+    }
+
+    fn power_down(&self, allocator: &mut A) {
+        *self.0.get_mut(allocator) = true;
+    }
+
+    fn is_powered_down(&self, allocator: &A) -> bool {
+        *self.0.get(allocator)
+    }
+}
+
+impl<A: Allocator> Bus<A> for PowerDown<A> {
+    fn read(&self, _buf: &mut [u8], _allocator: &mut A, _address: u32) {
+        // Reads are not supported, so do nothing.
+    }
+
+    fn read_debug(&self, _buf: &mut [u8], _allocator: &A, _address: u32) {
+        // Reads are not supported, so do nothing.
+    }
+
+    fn write(&self, allocator: &mut A, address: u32, buf: &[u8]) {
+        // Ignore address, since it should be in the range 0x0..0x4, and the behavior is to round
+        // down the address to the closest 4-byte aligned address.
+        let _ = address;
+        // If the lower 2 bytes are both 0x55, then we will power down.
+        if let Some(&[0x55, 0x55]) = buf.get(..2) {
+            self.power_down(allocator);
+        }
     }
 }

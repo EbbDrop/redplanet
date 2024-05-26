@@ -1,3 +1,4 @@
+use super::PowerDown;
 use crate::address_map::TwoWayAddressMap;
 use crate::bus::Bus;
 use crate::resources::ram::Ram;
@@ -13,6 +14,7 @@ pub(super) enum Resource {
     Uart0,
     Flash,
     Dram,
+    PowerDown,
 }
 
 /// Abstraction of a system's main bus connecting all devices to the core.
@@ -32,11 +34,12 @@ pub(super) enum Resource {
 /// See also the [`crate::system_bus::SystemBus`] trait.
 #[derive(Debug)]
 pub(super) struct SystemBus<A: Allocator> {
-    pub(super) memory_map: TwoWayAddressMap<Resource>,
-    pub(super) mrom: Rom<A>,
-    pub(super) uart0: Uart<A>,
-    pub(super) flash: Rom<A>,
-    pub(super) dram: Ram<A>,
+    pub memory_map: TwoWayAddressMap<Resource>,
+    pub mrom: Rom<A>,
+    pub uart0: Uart<A>,
+    pub flash: Rom<A>,
+    pub dram: Ram<A>,
+    pub power_down: PowerDown<A>,
 }
 
 impl<A: Allocator> SystemBus<A> {
@@ -65,6 +68,7 @@ impl<A: Allocator> SystemBus<A> {
             Resource::Uart0 => &self.uart0,
             Resource::Flash => &self.flash,
             Resource::Dram => &self.dram,
+            Resource::PowerDown => &self.power_down,
         }
     }
 }
@@ -80,6 +84,7 @@ impl<A: Allocator> crate::system_bus::SystemBus<A> for SystemBus<A> {
             Resource::Uart0 => true,
             Resource::Flash => true,
             Resource::Dram => true,
+            Resource::PowerDown => matches!(access_type, AccessType::Write),
         }
     }
 }
