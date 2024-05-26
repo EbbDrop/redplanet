@@ -112,7 +112,7 @@ pub struct Core<A: Allocator, B: SystemBus<A>> {
     ///
     /// Allocated separately, because this is updated independently of other registers.
     privilege_mode: Allocated<A, PrivilegeLevel>,
-    /// Status (mstatus, mstatush, sstatus, sstatush) registers.
+    /// Status (mstatus, mstatush, sstatus) registers.
     ///
     /// Allocated separately, because these are often mutated independently of other registers.
     status: Allocated<A, Status>,
@@ -302,6 +302,12 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
             csr::MCONFIGPTR => Ok(Self::MCONFIGPTR),
             csr::MHARTID => Ok(self.config.hart_id),
             //
+            // Status registers
+            //
+            csr::MSTATUS => Ok(self.read_mstatus(allocator)),
+            csr::MSTATUSH => Ok(self.read_mstatush(allocator)),
+            csr::SSTATUS => Ok(self.read_sstatus(allocator)),
+            //
             // Machine trap handling
             //
             csr::MSCRATCH => Ok(self.trap.get(allocator).read_mscratch()),
@@ -410,6 +416,12 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
             csr::MIMPID => {}
             csr::MCONFIGPTR => {}
             csr::MHARTID => {}
+            //
+            // Status registers
+            //
+            csr::MSTATUS => self.write_mstatus(allocator, value, mask),
+            csr::MSTATUSH => self.write_mstatush(allocator, value, mask),
+            csr::SSTATUS => self.write_sstatus(allocator, value, mask),
             //
             // Machine trap handling
             //

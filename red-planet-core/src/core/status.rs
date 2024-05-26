@@ -1,13 +1,16 @@
 #![allow(unused)]
 
 use bitvec::{field::BitField, order::Lsb0, view::BitView};
+use space_time::allocator::Allocator;
 
-use crate::{PrivilegeLevel, RawPrivilegeLevel};
+use crate::{system_bus::SystemBus, PrivilegeLevel, RawPrivilegeLevel};
+
+use super::Core;
 
 // Mask to be applied to mstatus to get sstatus.
 const SSTATUS_MASK: u32 = 0b1111_1111_1000_1101_1110_0111_0111_0111;
 
-/// Provides the mstatus, mstatush, sstatus, and sstatush registers.
+/// Provides the mstatus, mstatush, and sstatus registers.
 ///
 /// > The mstatus register is an MXLEN-bit read/write register [...]. The mstatus register keeps
 /// > track of and controls the hart’s current operating state. A restricted view of mstatus appears
@@ -32,97 +35,6 @@ impl Status {
             mstatus: 0x0000_0000,
             mstatush: 0x0000_0000,
         }
-    }
-
-    pub fn read_mstatus(&self) -> u32 {
-        self.mstatus
-    }
-
-    pub fn write_mstatus(&mut self, value: u32, mask: u32) {
-        let mask_bits = value.view_bits::<Lsb0>();
-        let updated = self.mstatus & !mask | value & mask;
-        let updated_bits = updated.view_bits::<Lsb0>();
-        // Update the fields using the relevant setters to treat WARL fields correctly.
-        if mask_bits[idx::SIE] {
-            self.set_sie(updated_bits[idx::SIE]);
-        }
-        if mask_bits[idx::MIE] {
-            self.set_mie(updated_bits[idx::MIE]);
-        }
-        if mask_bits[idx::SPIE] {
-            self.set_spie(updated_bits[idx::SPIE]);
-        }
-        if mask_bits[idx::UBE] {
-            self.set_ube(updated_bits[idx::UBE]);
-        }
-        if mask_bits[idx::MPIE] {
-            self.set_mpie(updated_bits[idx::MPIE]);
-        }
-        if mask_bits[idx::SPP] {
-            self.set_spp(RawPrivilegeLevel::from_u2(updated_bits[idx::SPP] as u8));
-        }
-        if mask_bits[idx::VS] | mask_bits[idx::VS + 1] {
-            self.set_vs(ExtensionContextStatus::from_u2(
-                updated_bits[idx::VS..(idx::VS + 2)].load_le(),
-            ));
-        }
-        if mask_bits[idx::MPP] | mask_bits[idx::MPP + 1] {
-            self.set_mpp(RawPrivilegeLevel::from_u2(
-                updated_bits[idx::MPP..(idx::MPP + 2)].load_le(),
-            ));
-        }
-        if mask_bits[idx::FS] | mask_bits[idx::FS + 1] {
-            self.set_fs(ExtensionContextStatus::from_u2(
-                updated_bits[idx::FS..(idx::FS + 2)].load_le(),
-            ));
-        }
-        if mask_bits[idx::MPRV] {
-            self.set_mprv(updated_bits[idx::MPRV]);
-        }
-        if mask_bits[idx::SUM] {
-            self.set_sum(updated_bits[idx::SUM]);
-        }
-        if mask_bits[idx::MXR] {
-            self.set_mxr(updated_bits[idx::MXR]);
-        }
-        if mask_bits[idx::TVM] {
-            self.set_tvm(updated_bits[idx::TVM]);
-        }
-        if mask_bits[idx::TVM] {
-            self.set_tvm(updated_bits[idx::TVM]);
-        }
-        if mask_bits[idx::TW] {
-            self.set_tw(updated_bits[idx::TW]);
-        }
-        if mask_bits[idx::TSR] {
-            self.set_tsr(updated_bits[idx::TSR]);
-        }
-        // Ignore read-only fields, and the remaining WPRI fields.
-    }
-
-    pub fn read_mstatush(&self) -> u32 {
-        self.mstatush
-    }
-
-    pub fn write_mstatush(&mut self, value: u32, mask: u32) {
-        let mask_bits = mask.view_bits::<Lsb0>();
-        let value_bits = value.view_bits::<Lsb0>();
-        // Update the fields using the relevant setters to treat WARL fields correctly.
-        if mask_bits[hidx::MBE] {
-            self.set_mbe(value_bits[hidx::MBE]);
-        }
-        if mask_bits[hidx::SBE] {
-            self.set_sbe(value_bits[hidx::SBE]);
-        }
-        // Ignore the remaining WPRI fields.
-    }
-
-    pub fn read_sstatus(&self) -> u32 {
-        self.mstatus & SSTATUS_MASK
-    }
-
-    pub fn write_sstatus(&mut self, value: u32, mask: u32) {
-        self.write_mstatus(value, mask & SSTATUS_MASK);
     }
 
     /// Returns `true` if the MIE (M-mode Interrupt Enable) bit is set.
@@ -430,5 +342,102 @@ impl ExtensionContextStatus {
             3 => Self::Dirty,
             _ => panic!("out of range u2 used"),
         }
+    }
+}
+
+impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
+    pub fn read_mstatus(&self, allocator: &mut A) -> u32 {
+        self.status.get(allocator).mstatus
+    }
+
+    pub fn write_mstatus(&self, allocator: &mut A, value: u32, mask: u32) {
+        let status = self.status.get_mut(allocator);
+
+        let mask_bits = value.view_bits::<Lsb0>();
+        let updated = status.mstatus & !mask | value & mask;
+        let updated_bits = updated.view_bits::<Lsb0>();
+
+        // Update the fields using the relevant setters to treat WARL fields correctly.
+        if mask_bits[idx::SIE] {
+            status.set_sie(updated_bits[idx::SIE]);
+        }
+        if mask_bits[idx::MIE] {
+            status.set_mie(updated_bits[idx::MIE]);
+        }
+        if mask_bits[idx::SPIE] {
+            status.set_spie(updated_bits[idx::SPIE]);
+        }
+        if mask_bits[idx::UBE] {
+            status.set_ube(updated_bits[idx::UBE]);
+        }
+        if mask_bits[idx::MPIE] {
+            status.set_mpie(updated_bits[idx::MPIE]);
+        }
+        if mask_bits[idx::SPP] {
+            status.set_spp(RawPrivilegeLevel::from_u2(updated_bits[idx::SPP] as u8));
+        }
+        if mask_bits[idx::VS] | mask_bits[idx::VS + 1] {
+            status.set_vs(ExtensionContextStatus::from_u2(
+                updated_bits[idx::VS..(idx::VS + 2)].load_le(),
+            ));
+        }
+        if mask_bits[idx::MPP] | mask_bits[idx::MPP + 1] {
+            status.set_mpp(RawPrivilegeLevel::from_u2(
+                updated_bits[idx::MPP..(idx::MPP + 2)].load_le(),
+            ));
+        }
+        if mask_bits[idx::FS] | mask_bits[idx::FS + 1] {
+            status.set_fs(ExtensionContextStatus::from_u2(
+                updated_bits[idx::FS..(idx::FS + 2)].load_le(),
+            ));
+        }
+        if mask_bits[idx::MPRV] {
+            status.set_mprv(updated_bits[idx::MPRV]);
+        }
+        if mask_bits[idx::SUM] {
+            status.set_sum(updated_bits[idx::SUM]);
+        }
+        if mask_bits[idx::MXR] {
+            status.set_mxr(updated_bits[idx::MXR]);
+        }
+        if mask_bits[idx::TVM] {
+            status.set_tvm(updated_bits[idx::TVM]);
+        }
+        if mask_bits[idx::TVM] {
+            status.set_tvm(updated_bits[idx::TVM]);
+        }
+        if mask_bits[idx::TW] {
+            status.set_tw(updated_bits[idx::TW]);
+        }
+        if mask_bits[idx::TSR] {
+            status.set_tsr(updated_bits[idx::TSR]);
+        }
+        // Ignore read-only fields, and the remaining WPRI fields.
+    }
+
+    pub fn read_mstatush(&self, allocator: &mut A) -> u32 {
+        self.status.get(allocator).mstatush
+    }
+
+    pub fn write_mstatush(&self, allocator: &mut A, value: u32, mask: u32) {
+        let status = self.status.get_mut(allocator);
+        let mask_bits = mask.view_bits::<Lsb0>();
+        let value_bits = value.view_bits::<Lsb0>();
+        // Update the fields using the relevant setters to treat WARL fields correctly.
+        if mask_bits[hidx::MBE] {
+            status.set_mbe(value_bits[hidx::MBE]);
+        }
+        if mask_bits[hidx::SBE] {
+            status.set_sbe(value_bits[hidx::SBE]);
+        }
+        // Ignore the remaining WPRI fields.
+    }
+
+    pub fn read_sstatus(&self, allocator: &mut A) -> u32 {
+        self.status.get(allocator).mstatus & SSTATUS_MASK
+    }
+
+    pub fn write_sstatus(&self, allocator: &mut A, value: u32, mask: u32) {
+        self.write_mstatus(allocator, value, mask & SSTATUS_MASK);
     }
 }
