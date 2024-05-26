@@ -17,7 +17,7 @@ use crate::registers::Registers;
 use crate::simulator::Simulatable;
 use crate::system_bus::SystemBus;
 use crate::{Allocated, Allocator, Endianness, PrivilegeLevel, RawPrivilegeLevel};
-use control::{Control, VectorMode};
+use control::Control;
 use counters::Counters;
 use execute::Executor;
 use mconfig::Mconfig;
@@ -25,7 +25,7 @@ use mmu::Mmu;
 use status::Status;
 use std::fmt::Debug;
 use thiserror::Error;
-use trap::{Trap, TrapCause};
+use trap::{Trap, TrapCause, VectorMode};
 
 pub use csr::CsrSpecifier;
 
@@ -369,10 +369,10 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
             //
             // Trap setup registers
             //
-            csr::MTVEC => Ok(self.control.get(allocator).mtvec.read()),
-            csr::MEDELEG => Ok(self.control.get(allocator).medeleg.read()),
+            csr::MTVEC => Ok(self.trap.get(allocator).mtvec.read()),
+            csr::MEDELEG => Ok(self.trap.get(allocator).medeleg.read()),
             csr::MCOUNTEREN => Ok(self.control.get(allocator).mcounteren.read()),
-            csr::STVEC => Ok(self.control.get(allocator).stvec.read()),
+            csr::STVEC => Ok(self.trap.get(allocator).stvec.read()),
             csr::SCOUNTEREN => Ok(self.control.get(allocator).scounteren.read()),
             //
             // Machine configuration registers
@@ -479,14 +479,14 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
             //
             // Trap setup registers
             //
-            csr::MTVEC => self.control.get_mut(allocator).mtvec.write(value, mask),
-            csr::MEDELEG => self.control.get_mut(allocator).medeleg.write(value, mask),
+            csr::MTVEC => self.trap.get_mut(allocator).mtvec.write(value, mask),
+            csr::MEDELEG => self.trap.get_mut(allocator).medeleg.write(value, mask),
             csr::MCOUNTEREN => self
                 .control
                 .get_mut(allocator)
                 .mcounteren
                 .write(value, mask),
-            csr::STVEC => self.control.get_mut(allocator).stvec.write(value, mask),
+            csr::STVEC => self.trap.get_mut(allocator).stvec.write(value, mask),
             csr::SCOUNTEREN => self
                 .control
                 .get_mut(allocator)
@@ -794,37 +794,22 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
     }
 
     fn trap(&self, allocator: &mut A, cause: TrapCause) {
+        let pc = self.registers(allocator).pc();
         let privilege_mode = *self.privilege_mode.get(allocator);
-        let control = self.control.get(allocator);
+        let trap = self.trap.get_mut(allocator);
         // Determine if we should be delegating. Note that `delegate == true` does not necessarily
         // mean the trap will be handled in S-mode, since traps that occur while running in M-mode
         // are always handled in M-mode. That check is performed later; see `trap_to_s_mode`.
         let delegate = match cause {
-            TrapCause::Exception(exception) => control.medeleg.should_delegate(exception),
-            TrapCause::Interrupt(interrupt) => control.mideleg.should_delegate(interrupt),
+            TrapCause::Exception(exception) => trap.medeleg.should_delegate(exception),
+            TrapCause::Interrupt(interrupt) => trap.mideleg.should_delegate(interrupt),
         };
         // Determine whether we are trapping into S-mode or M-mode.
         let trap_to_s_mode = match (privilege_mode, delegate) {
             (PrivilegeLevel::Machine, _) | (_, false) => false,
             (_, true) => true,
         };
-        let tvec = match trap_to_s_mode {
-            true => &control.stvec,
-            false => &control.mtvec,
-        };
-        // Determine trap handler address base on mtvec register and cause type.
-        let trap_handler_address = match (tvec.mode(), &cause) {
-            (VectorMode::Vectored, TrapCause::Interrupt(interrupt)) => {
-                tvec.base() + 4 * interrupt.code()
-            }
-            (VectorMode::Vectored, TrapCause::Exception(_)) | (VectorMode::Direct, _) => {
-                tvec.base()
-            }
-        };
-        // Set pc to the correct trap handler.
-        let pc = std::mem::replace(self.registers_mut(allocator).pc_mut(), trap_handler_address);
         // Set xcause register.
-        let trap = self.trap.get_mut(allocator);
         match trap_to_s_mode {
             true => trap.scause.set(&cause),
             false => trap.mcause.set(&cause),
@@ -861,6 +846,21 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
                 trap.write_mtval2(0, 0xFFFF_FFFF);
             }
         };
+        // Determine trap handler address base on xtvec register and cause type.
+        let tvec = match trap_to_s_mode {
+            true => &trap.stvec,
+            false => &trap.mtvec,
+        };
+        let trap_handler_address = match (tvec.mode(), &cause) {
+            (VectorMode::Vectored, TrapCause::Interrupt(interrupt)) => {
+                tvec.base() + 4 * interrupt.code()
+            }
+            (VectorMode::Vectored, TrapCause::Exception(_)) | (VectorMode::Direct, _) => {
+                tvec.base()
+            }
+        };
+        // Set pc to the correct trap handler.
+        *self.registers_mut(allocator).pc_mut() = trap_handler_address;
         // Update fields of status register.
         let status = self.status.get_mut(allocator);
         match trap_to_s_mode {
