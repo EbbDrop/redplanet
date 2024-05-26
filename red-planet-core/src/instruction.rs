@@ -64,6 +64,9 @@ pub enum Instruction {
     },
     Ecall,
     Ebreak,
+    Sret,
+    Mret,
+    Wfi,
     Csr {
         op: CsrOp,
         dest: Specifier,
@@ -274,10 +277,13 @@ impl Instruction {
             }
             Opcode::System => match i_sys(raw_instruction) {
                 Some(sys) => match sys {
-                    SysFunct::Priv => match i_sys_priv(raw_instruction) {
+                    SysFunct::Priv => match sys_priv(raw_instruction) {
                         Some(sys_priv) => Ok(match sys_priv {
                             SysPriv::Ecall => Self::Ecall,
                             SysPriv::Ebreak => Self::Ebreak,
+                            SysPriv::Sret => Self::Sret,
+                            SysPriv::Mret => Self::Mret,
+                            SysPriv::Wfi => Self::Wfi,
                         }),
                         None => Err(DecodeError::IllegalInstruction),
                     },
@@ -419,15 +425,24 @@ fn i_sys(raw_instruction: u32) -> Option<SysFunct> {
     }
 }
 
-fn i_sys_priv(raw_instruction: u32) -> Option<SysPriv> {
-    match (
-        i_imm(raw_instruction),
-        u8::from(rs1(raw_instruction)),
-        u8::from(rd(raw_instruction)),
-    ) {
-        (0, 0, 0) => Some(SysPriv::Ecall),
-        (1, 0, 0) => Some(SysPriv::Ebreak),
-        _ => None,
+fn sys_priv(raw_instruction: u32) -> Option<SysPriv> {
+    if u8::from(rs1(raw_instruction)) != 0 || u8::from(rd(raw_instruction)) != 0 {
+        return None;
+    }
+    let funct = funct12(raw_instruction);
+    if funct >> 11 != 0 {
+        // Custom SYSTEM instruction, but none are supported.
+        return None;
+    }
+    match funct {
+        0 => Some(SysPriv::Ecall),
+        1 => Some(SysPriv::Ebreak),
+        _ => match (funct7(raw_instruction), u8::from(rs2(raw_instruction))) {
+            (0b0001000, 2) => Some(SysPriv::Sret),
+            (0b0011000, 2) => Some(SysPriv::Mret),
+            (0b0001000, 5) => Some(SysPriv::Wfi),
+            _ => None,
+        },
     }
 }
 
@@ -506,6 +521,11 @@ fn i_imm(raw_instruction: u32) -> i32 {
     raw_instruction as i32 >> 20
 }
 
+/// Returns the 12-bit I-immediate zero-extended to 32 bits.
+fn funct12(raw_instruction: u32) -> u32 {
+    raw_instruction >> 20
+}
+
 /// Returns the 12-bit S-immediate sign-extended to 32 bits.
 fn s_imm(raw_instruction: u32) -> i32 {
     let imm_11_5 = raw_instruction & 0x7F00_0000;
@@ -566,6 +586,9 @@ enum SysFunct {
 enum SysPriv {
     Ecall,
     Ebreak,
+    Sret,
+    Mret,
+    Wfi,
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]

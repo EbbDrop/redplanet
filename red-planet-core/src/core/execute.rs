@@ -3,7 +3,7 @@ use crate::core::{Core, CsrSpecifier, Exception, ExecutionResult};
 use crate::instruction::{CsrOp, FenceOrderCombination};
 use crate::registers::{Registers, Specifier};
 use crate::system_bus::SystemBus;
-use crate::{Alignment, Allocator};
+use crate::{Alignment, Allocator, PrivilegeLevel, RawPrivilegeLevel};
 
 #[derive(Debug)]
 pub(super) struct Executor<'a, 'c, A: Allocator, B: SystemBus<A>> {
@@ -383,11 +383,15 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
     }
 
     pub fn ecall(&mut self) -> ExecutionResult {
-        todo!()
+        match self.core.privilege_mode(self.allocator) {
+            PrivilegeLevel::User => Err(Exception::EnvironmentCallFromUMode),
+            PrivilegeLevel::Supervisor => Err(Exception::EnvironmentCallFromSMode),
+            PrivilegeLevel::Machine => Err(Exception::EnvironmentCallFromMMode),
+        }
     }
 
     pub fn ebreak(&mut self) -> ExecutionResult {
-        todo!()
+        Err(Exception::Breakpoint)
     }
 
     /// Executes a `csrrw` instruction.
@@ -543,6 +547,59 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
         self.csr_imm_op(CsrOp::ReadClear, dest, csr, immediate)
     }
 
+    pub fn sret(&mut self) -> ExecutionResult {
+        if self.core.privilege_mode(self.allocator) < PrivilegeLevel::Supervisor {
+            return Err(Exception::IllegalInstruction(None));
+        }
+        let status = self.core.status_mut(self.allocator);
+        let pp = status.spp();
+        // Set xIE to xPIE.
+        status.set_sie(status.spie());
+        // Set xPIE = 1.
+        status.set_spie(true);
+        // Set xPP to lowest supported privilege level, which is U-mode.
+        status.set_spp(RawPrivilegeLevel::User);
+        // Set MPRV=0 if xPP != M.
+        if pp != PrivilegeLevel::Machine {
+            status.set_mprv(false);
+        }
+        // Set core's privilege mode to xPP.
+        *self.core.privilege_mode.get_mut(self.allocator) = pp;
+        // Set pc to xepc.
+        let sepc = self.core.trap.get(self.allocator).read_sepc();
+        *self.core.registers_mut(self.allocator).pc_mut() = sepc;
+        Ok(())
+    }
+
+    pub fn mret(&mut self) -> ExecutionResult {
+        if self.core.privilege_mode(self.allocator) < PrivilegeLevel::Machine {
+            return Err(Exception::IllegalInstruction(None));
+        }
+        let status = self.core.status_mut(self.allocator);
+        let pp = status.mpp();
+        // Set xIE to xPIE.
+        status.set_mie(status.mpie());
+        // Set xPIE = 1.
+        status.set_mpie(true);
+        // Set xPP to lowest supported privilege level, which is U-mode.
+        status.set_mpp(RawPrivilegeLevel::User);
+        // Set MPRV=0 if xPP != M.
+        if pp != PrivilegeLevel::Machine {
+            status.set_mprv(false);
+        }
+        // Set core's privilege mode to xPP.
+        *self.core.privilege_mode.get_mut(self.allocator) = pp;
+        // Set pc to xepc.
+        let mepc = self.core.trap.get(self.allocator).read_mepc();
+        *self.core.registers_mut(self.allocator).pc_mut() = mepc;
+        Ok(())
+    }
+
+    pub fn wfi(&mut self) -> ExecutionResult {
+        // Implemented as a nop, which is allowed.
+        Ok(())
+    }
+
     // Private generic implementations
 
     fn reg_imm_op<F>(
@@ -605,7 +662,7 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
         let new_pc = compute_target(registers);
         // Check target pc is word-aligned
         if !Alignment::WORD.is_aligned(new_pc) {
-            return Err(Exception::InstructionAddressMisaligned);
+            return Err(Exception::InstructionAddressMisaligned(new_pc));
         }
         // Update pc to target
         let old_pc = std::mem::replace(registers.pc_mut(), new_pc);
@@ -630,7 +687,7 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
             let new_pc = registers.pc().wrapping_add_signed(offset);
             // Check target pc is word-aligned
             if !Alignment::WORD.is_aligned(new_pc) {
-                return Err(Exception::InstructionAddressMisaligned);
+                return Err(Exception::InstructionAddressMisaligned(new_pc));
             }
             *registers.pc_mut() = new_pc;
         } else {
@@ -652,8 +709,8 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
         let registers = self.core.registers(self.allocator);
         let address = registers.x(base).wrapping_add_signed(offset);
         let value = op(self, address).map_err(|err| match err {
-            MemoryError::MisalignedAccess => Exception::LoadAddressMisaligned,
-            MemoryError::AccessFault => Exception::LoadAccessFault,
+            MemoryError::MisalignedAccess => Exception::LoadAddressMisaligned(address),
+            MemoryError::AccessFault => Exception::LoadAccessFault(address),
         })?;
         let registers = self.core.registers_mut(self.allocator);
         registers.set_x(dest, value);
@@ -675,8 +732,8 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
         let value = registers.x(src);
         let address = registers.x(base).wrapping_add_signed(offset);
         op(self, address, value).map_err(|err| match err {
-            MemoryError::MisalignedAccess => Exception::StoreOrAmoAddressMisaligned,
-            MemoryError::AccessFault => Exception::StoreOrAmoAccessFault,
+            MemoryError::MisalignedAccess => Exception::StoreOrAmoAddressMisaligned(address),
+            MemoryError::AccessFault => Exception::StoreOrAmoAccessFault(address),
         })?;
         increment_pc(self.core.registers_mut(self.allocator));
         Ok(())
@@ -728,7 +785,7 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
             let old_value = self
                 .core
                 .read_csr(self.allocator, csr, privilege_level)
-                .map_err(|_| Exception::IllegalInstruction)?;
+                .map_err(|_| Exception::IllegalInstruction(None))?;
             let registers = self.core.registers_mut(self.allocator);
             registers.set_x(dest, old_value);
         };
@@ -740,7 +797,7 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
             };
             self.core
                 .write_csr(self.allocator, csr, privilege_level, value, mask)
-                .map_err(|_| Exception::IllegalInstruction)?;
+                .map_err(|_| Exception::IllegalInstruction(None))?;
         }
         Ok(())
     }

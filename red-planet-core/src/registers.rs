@@ -29,16 +29,25 @@ pub const LEN: u8 = 32;
 ///
 /// It is not possible to get a mutable reference to an `x` register, since that would allow
 /// unchecked writes to register `x0`.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 pub struct Registers {
     x_registers: [X; LEN as usize],
     pc: u32,
 }
 
+impl Default for Registers {
+    fn default() -> Self {
+        Self::new(0)
+    }
+}
+
 impl Registers {
     /// Returns a fresh set of all-zero registers.
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(initial_pc: u32) -> Self {
+        Self {
+            x_registers: [0; LEN as usize],
+            pc: initial_pc,
+        }
     }
 
     /// Returns the value of an `x` register.
@@ -141,7 +150,7 @@ mod tests {
 
     #[test]
     fn test_write_to_zero() {
-        let mut registers = Registers::new();
+        let mut registers = Registers::default();
         assert_eq!(0, registers.x(Specifier::X0));
         assert_eq!(0, registers.pc());
         registers.set_x(Specifier::X0, 0xDEADBEEF);
@@ -151,7 +160,7 @@ mod tests {
 
     #[test]
     fn test_write_to_pc() {
-        let mut registers = Registers::new();
+        let mut registers = Registers::default();
         assert_eq!(0, registers.pc());
         assert_eq!(0, registers.x(Specifier::X0));
         *registers.pc_mut() = 0xDEADBEEF;
@@ -161,7 +170,7 @@ mod tests {
 
     #[test]
     fn test_get_x() {
-        let registers = Registers::new();
+        let registers = Registers::default();
         for i in 0..LEN {
             assert_eq!(0, registers.x(Specifier::from_u5(i)));
         }
@@ -169,7 +178,7 @@ mod tests {
 
     #[test]
     fn test_set_x() {
-        let mut registers = Registers::new();
+        let mut registers = Registers::default();
         registers.set_x(Specifier::X0, 1);
         for i in 1..LEN {
             registers.set_x(Specifier::from_u5(i), i as u32 + 1);
@@ -182,7 +191,7 @@ mod tests {
 
     #[test]
     fn test_replace_x() {
-        let mut registers = Registers::new();
+        let mut registers = Registers::default();
         assert_eq!(0, registers.replace_x(Specifier::X0, 0));
         for i in 1..LEN {
             assert_eq!(0, registers.replace_x(Specifier::from_u5(i), i as u32));

@@ -109,6 +109,8 @@ impl<A: Allocator> Board<A> {
                 mtimecmp_address: 0x2000_0000,
                 support_misaligned_memory_access: true,
                 reset_vector: mrom_range.start(),
+                // TODO: Research what address QEMU virt uses for this.
+                nmi_vector: mrom_range.start(),
             },
         );
 

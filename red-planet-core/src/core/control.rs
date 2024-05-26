@@ -1,13 +1,12 @@
 use bitvec::{field::BitField, order::Lsb0, view::BitView};
 
-use super::Exception;
+use super::{Exception, Interrupt};
 
 #[derive(Debug, Clone)]
 pub struct Control {
     pub mtvec: Tvec,
     pub medeleg: Medeleg,
-    // TODO
-    // pub mideleg: Mideleg,
+    pub mideleg: Mideleg,
     pub mcounteren: Counteren,
     pub mcountinhibit: Mcountinhibit,
 
@@ -28,7 +27,7 @@ impl Control {
         Self {
             mtvec: Tvec::new(),
             medeleg: Medeleg::new(),
-            // mideleg: todo!(),
+            mideleg: Mideleg::new(),
             mcounteren: Counteren::new(),
             mcountinhibit: Mcountinhibit::new(),
             // sie: todo!(),
@@ -142,25 +141,25 @@ impl Default for Medeleg {
 
 impl Medeleg {
     // Delegetable exceptions according to QEMU's implementation.
-    #[allow(clippy::identity_op)] // To use this zero , here, which generates better formatting.
-    const DELEGATABLE_EXCEPTIONS_MASK: u32 = (0  // <-*
-        | (1 << Exception::InstructionAddressMisaligned.code())
-        | (1 << Exception::InstructionAccessFault.code())
-        | (1 << Exception::IllegalInstruction.code())
-        | (1 << Exception::Breakpoint.code())
-        | (1 << Exception::LoadAddressMisaligned.code())
-        | (1 << Exception::LoadAccessFault.code())
-        | (1 << Exception::StoreOrAmoAddressMisaligned.code())
-        | (1 << Exception::StoreOrAmoAccessFault.code())
-        | (1 << Exception::EnvironmentCallFromUMode.code())
-        | (1 << Exception::EnvironmentCallFromSMode.code())
-        | (1 << Exception::EnvironmentCallFromMMode.code())
-        | (1 << Exception::InstructionPageFault.code())
-        | (1 << Exception::LoadPageFault.code())
-        | (1 << Exception::StoreOrAmoPageFault.code()));
+    #[allow(clippy::identity_op)] // To use this zero . here, which generates better formatting.
+    const DELEGATABLE_EXCEPTIONS_MASK: u32 = 0  // <--'
+        | (1 << Exception::INSTRUCTION_ADDRESS_MISALIGNED)
+        | (1 << Exception::INSTRUCTION_ACCESS_FAULT)
+        | (1 << Exception::ILLEGAL_INSTRUCTION)
+        | (1 << Exception::BREAKPOINT)
+        | (1 << Exception::LOAD_ADDRESS_MISALIGNED)
+        | (1 << Exception::LOAD_ACCESS_FAULT)
+        | (1 << Exception::STORE_OR_AMO_ADDRESS_MISALIGNED)
+        | (1 << Exception::STORE_OR_AMO_ACCESS_FAULT)
+        | (1 << Exception::ENVIRONMENT_CALL_FROM_U_MODE)
+        | (1 << Exception::ENVIRONMENT_CALL_FROM_S_MODE)
+        | (1 << Exception::ENVIRONMENT_CALL_FROM_M_MODE)
+        | (1 << Exception::INSTRUCTION_PAGE_FAULT)
+        | (1 << Exception::LOAD_PAGE_FAULT)
+        | (1 << Exception::STORE_OR_AMO_PAGE_FAULT);
 
     pub fn new() -> Self {
-        Self(0)
+        Self(0x0000_0000)
     }
 
     pub fn read(&self) -> u32 {
@@ -173,6 +172,37 @@ impl Medeleg {
 
     pub fn should_delegate(&self, exception: Exception) -> bool {
         self.0 & (1 << exception.code()) != 0
+    }
+}
+
+/// The mideleg register is **WARL**.
+#[derive(Debug, Clone)]
+pub struct Mideleg(u32);
+
+impl Default for Mideleg {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Mideleg {
+    // Delegetable interrupts according to QEMU's implementation.
+    const DELEGATABLE_INTERRUPTS_MASK: u32 = (1 << Mip::SSIP) | (1 << Mip::STIP) | (1 << Mip::SEIP);
+
+    pub fn new() -> Self {
+        Self(0x0000_0000)
+    }
+
+    pub fn read(&self) -> u32 {
+        self.0
+    }
+
+    pub fn write(&mut self, value: u32, mask: u32) {
+        self.0 = self.0 & !mask | value & mask & Self::DELEGATABLE_INTERRUPTS_MASK;
+    }
+
+    pub fn should_delegate(&self, interrupt: Interrupt) -> bool {
+        self.0 & (1 << interrupt.code()) != 0
     }
 }
 
@@ -305,4 +335,19 @@ impl Mcountinhibit {
         }
         self.0.view_bits_mut::<Lsb0>().set(n as usize, value)
     }
+}
+
+// Temporary placeholder for the real mip. TODO
+#[allow(unused)]
+#[derive(Debug, Clone)]
+pub struct Mip(u16);
+
+impl Mip {
+    // Bit indices for the fields of the mip register.
+    const SSIP: usize = 1;
+    // const MSIP: usize = 3;
+    const STIP: usize = 5;
+    // const MTIP: usize = 7;
+    const SEIP: usize = 9;
+    // const MEIP: usize = 11;
 }
