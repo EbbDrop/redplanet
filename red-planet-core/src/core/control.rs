@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 use bitvec::{field::BitField, order::Lsb0, view::BitView};
 
 use super::{Exception, Interrupt};

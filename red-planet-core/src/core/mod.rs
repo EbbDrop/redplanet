@@ -105,17 +105,25 @@ pub struct Config {
 /// > access the CSR.
 #[derive(Debug)]
 pub struct Core<A: Allocator, B: SystemBus<A>> {
+    /// Configuration options for this core. See [`Config`].
     config: Config,
+    /// The system bus used via which physical memory is accessed by this core.
     system_bus: B,
+    /// General purpose registers: x and pc registers.
     registers: Allocated<A, Registers>,
-    trap: Allocated<A, Trap>,
-    /// Index in the allocator where all CSR counter registers are stored.
+    /// The core's current privilege mode.
     ///
-    /// These are allocated together, since at least a subset of them will be updated every tick,
-    /// and most likely more will be updated in between snapshots.
-    counters: Allocated<A, Counters>,
-    status: Allocated<A, Status>,
+    /// Allocated separately, because this is updated independently of other registers.
     privilege_mode: Allocated<A, PrivilegeLevel>,
+    /// Status (mstatus, mstatush, sstatus, sstatush) registers.
+    ///
+    /// Allocated separately, because these are often mutated independently of other registers.
+    status: Allocated<A, Status>,
+    /// All CSR counter registers.
+    ///
+    /// Allocated together, since most of them will be updated simultaneously.
+    counters: Allocated<A, Counters>,
+    trap: Allocated<A, Trap>,
     control: Allocated<A, Control>,
     mconfig: Allocated<A, Mconfig>,
 }
@@ -188,6 +196,67 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
         self.registers.drop(allocator);
     }
 
+    /// Provide a read-only view of this core's configuration.
+    ///
+    /// It is not possible to modify the configuration after creation.
+    pub fn config(&self) -> &Config {
+        &self.config
+    }
+
+    /// Returns the Hart ID that was assigned to this core's single Hart.
+    pub fn hart_id(&self) -> u32 {
+        self.config.hart_id
+    }
+
+    /// Returns the current privilege mode.
+    ///
+    /// Note that loads and stores execute at the
+    /// [`effective_privilege_mode`](Self::effective_privilege_mode).
+    ///
+    /// See also [`PrivilegeLevel`].
+    pub fn privilege_mode(&self, allocator: &A) -> PrivilegeLevel {
+        *self.privilege_mode.get(allocator)
+    }
+
+    /// Returns the current *effective privilege mode*. This is the privilege level at which load
+    /// and stores execute (but not instruction fetches).
+    ///
+    /// See [`privilege_mode`](Self::privilege_mode) for the privilege mode used for all other
+    /// operations.
+    ///
+    /// See also [`PrivilegeLevel`].
+    pub fn effective_privilege_mode(&self, allocator: &A) -> PrivilegeLevel {
+        let status = self.status.get(allocator);
+        match status.mprv() {
+            true => status.mpp(),
+            false => *self.privilege_mode.get(allocator),
+        }
+    }
+
+    /// Returns the endianness of the core for the given privilege mode.
+    pub fn endianness(&self, allocator: &A, privilege_mode: PrivilegeLevel) -> Endianness {
+        let status = self.status.get(allocator);
+        let be = match privilege_mode {
+            PrivilegeLevel::User => status.ube(),
+            PrivilegeLevel::Supervisor => status.sbe(),
+            PrivilegeLevel::Machine => status.mbe(),
+        };
+        match be {
+            true => Endianness::BE,
+            false => Endianness::LE,
+        }
+    }
+
+    /// Provides immutable access to the general purpose (x) registers, and the pc register.
+    pub fn registers<'a>(&self, allocator: &'a A) -> &'a Registers {
+        self.registers.get(allocator)
+    }
+
+    /// Provides mutable access to the general purpose (x) registers, and the pc register.
+    pub fn registers_mut<'a>(&self, allocator: &'a mut A) -> &'a mut Registers {
+        self.registers.get_mut(allocator)
+    }
+
     /// Generate a Reset.
     pub fn reset(&self, allocator: &mut A) {
         *self.registers.get_mut(allocator) = Registers::new(self.config.reset_vector);
@@ -210,68 +279,6 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
         trap.write_mepc(old_pc, 0xFFFF_FFFF);
         trap.mcause.set_interrupt(None);
         *self.privilege_mode.get_mut(allocator) = PrivilegeLevel::Machine;
-    }
-
-    /// Provide a read-only view of this core's configuration.
-    ///
-    /// It is not possible to modify the configuration after creation.
-    pub fn config(&self) -> &Config {
-        &self.config
-    }
-
-    pub fn registers<'a>(&self, allocator: &'a A) -> &'a Registers {
-        self.registers.get(allocator)
-    }
-
-    pub fn registers_mut<'a>(&self, allocator: &'a mut A) -> &'a mut Registers {
-        self.registers.get_mut(allocator)
-    }
-
-    pub fn status<'a>(&self, allocator: &'a A) -> &'a Status {
-        self.status.get(allocator)
-    }
-
-    pub fn status_mut<'a>(&self, allocator: &'a mut A) -> &'a mut Status {
-        self.status.get_mut(allocator)
-    }
-
-    pub fn counters<'a>(&self, allocator: &'a A) -> &'a Counters {
-        self.counters.get(allocator)
-    }
-
-    pub fn counters_mut<'a>(&self, allocator: &'a mut A) -> &'a mut Counters {
-        self.counters.get_mut(allocator)
-    }
-
-    /// Returns the current privilege mode the core is in.
-    ///
-    /// See also [`PrivilegeLevel`].
-    pub fn privilege_mode(&self, allocator: &A) -> PrivilegeLevel {
-        *self.privilege_mode.get(allocator)
-    }
-
-    /// Returns the current *effective privilege mode*. This is the privilege level at which load
-    /// and stores execute (but not instruction fetches).
-    pub fn effective_privilege_mode(&self, allocator: &A) -> PrivilegeLevel {
-        let status = self.status.get(allocator);
-        match status.mprv() {
-            true => status.mpp(),
-            false => *self.privilege_mode.get(allocator),
-        }
-    }
-
-    /// Returns the endianness of the core for the given privilege mode.
-    pub fn endianness(&self, allocator: &A, privilege_mode: PrivilegeLevel) -> Endianness {
-        let status = self.status.get(allocator);
-        let be = match privilege_mode {
-            PrivilegeLevel::User => status.ube(),
-            PrivilegeLevel::Supervisor => status.sbe(),
-            PrivilegeLevel::Machine => status.mbe(),
-        };
-        match be {
-            true => Endianness::BE,
-            false => Endianness::LE,
-        }
     }
 
     /// Read the value of a CSR by its specifier.
@@ -374,6 +381,15 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
         }
     }
 
+    /// Write a (masked) value to a CSR by its specifier.
+    ///
+    /// `privilege_level` indicates at what privilege level the write is performed. If the CSR that
+    /// is being written requires a higher privilege level (see
+    /// [`csr::required_privilege_level`]), then an [`CsrAccessError::Privileged`] will be
+    /// given.
+    ///
+    /// Only the bits of `value` for which the corresponding bit in `mask` is `1` will be written.
+    /// However, even if `mask == 0`, write side-effects will still be performed.
     pub fn write_csr(
         &self,
         allocator: &mut A,
@@ -507,6 +523,7 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
         Ok(())
     }
 
+    /// Performs a read of the memory-mapped mtime CSR.
     pub fn read_mtime(&self, allocator: &mut A) -> u64 {
         let mut buf = [0u8; 8];
         self.system_bus
@@ -514,6 +531,7 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
         u64::from_le_bytes(buf)
     }
 
+    /// Performs a read of the memory-mapped mtimecmp CSR.
     pub fn read_mtimecmp(&self, allocator: &mut A) -> u64 {
         let mut buf = [0u8; 8];
         self.system_bus
@@ -531,15 +549,50 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
         Mmu { core: self }
     }
 
-    /// Execute a single instruction on this core.
+    /// Fetch the next instruction at pc and execute.
+    pub fn step(&self, allocator: &mut A) {
+        let pc = self.registers(allocator).pc();
+        let raw_instruction = self.fetch_instruction(allocator, pc);
+        self.step_with_raw(allocator, raw_instruction);
+    }
+
+    /// Execute a single (raw) instruction.
+    pub fn step_with_raw(&self, allocator: &mut A, raw_instruction: ExecutionResult<u32>) {
+        let instruction = raw_instruction.and_then(|raw| {
+            Instruction::decode(raw).map_err(|_| Exception::IllegalInstruction(Some(raw)))
+        });
+        self.step_with(allocator, instruction);
+    }
+
+    /// Execute a single (decoded) instruction.
+    pub fn step_with(&self, allocator: &mut A, instruction: ExecutionResult<Instruction>) {
+        let exception = instruction
+            .and_then(|instruction| self.execute_instruction(allocator, instruction))
+            .err();
+
+        let counters = self.counters.get_mut(allocator);
+        counters.increment_cycle();
+        match instruction {
+            // ECALL and EBREAK are not considered to retire.
+            // Similarly, if the instruction fetch failed, then instret should not be incremented.
+            Ok(Instruction::Ecall | Instruction::Ebreak) | Err(_) => {}
+            _ => counters.increment_instret(),
+        };
+
+        if let Some(exception) = exception {
+            self.trap(allocator, exception.into());
+        }
+    }
+
+    /// Execute a single (raw) instruction.
     ///
-    /// This is not the same as [`tick`](Self::tick)! This only takes care of executing the
+    /// This is not the same as [`Self::step_with_raw`]! This only takes care of executing the
     /// instruction-specific operations, such as updating `x` registers, updating memory, updating
     /// the `pc` register, and depending on the instruction also updating CSRs. However, additional
     /// state updates that normally happen at a tick, such as incrementing the appropriate counters,
     /// are not performed.
     ///
-    /// This can be useful for execution the operation defined by an instruction, without actually
+    /// This can be useful for executing the operation defined by an instruction, without actually
     /// progressing general execution. If used for this scenario, consider first decrementing the
     /// `pc` register by `4` so that the current instruction is in fact treated as the next, which
     /// will ensure the `pc` register will be as expected after executing the instruction. Take into
@@ -556,13 +609,8 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
         allocator: &mut A,
         raw_instruction: u32,
     ) -> ExecutionResult {
-        let instruction = match Instruction::decode(raw_instruction) {
-            Ok(instruction) => instruction,
-            // TODO: match on the error
-            Err(_) => {
-                return Err(Exception::IllegalInstruction(Some(raw_instruction)));
-            }
-        };
+        let instruction = Instruction::decode(raw_instruction)
+            .map_err(|_| Exception::IllegalInstruction(Some(raw_instruction)))?;
         self.execute_instruction(allocator, instruction)
             .map_err(|err| match err {
                 Exception::IllegalInstruction(None) => {
@@ -572,6 +620,13 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
             })
     }
 
+    /// Execute a single (decoded) instruction.
+    ///
+    /// Performs the same operation as [`Self::execute_raw_instruction`], but takes an already
+    /// decoded instruction.
+    ///
+    /// Note that this is not the same as [`Self::step_with`]!
+    /// See [`Self::execute_raw_instruction`] for why.
     pub fn execute_instruction(
         &self,
         allocator: &mut A,
@@ -581,7 +636,7 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
             allocator,
             core: self,
         };
-        let result = match instruction {
+        match instruction {
             Instruction::OpImm {
                 op,
                 dest,
@@ -709,14 +764,7 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
                 };
                 op(&mut executor, dest, csr, immediate)
             }
-        };
-        let counters = self.counters.get_mut(allocator);
-        counters.increment_cycle();
-        // ECALL and EBREAK are not considered to retire, and should not increment the minstret CSR.
-        if !matches!(instruction, Instruction::Ecall | Instruction::Ebreak) {
-            counters.increment_instret();
         }
-        result
     }
 
     /// "Independent instruction fetch unit"
@@ -837,18 +885,7 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
 
 impl<A: Allocator, B: SystemBus<A>> Simulatable<A> for Core<A, B> {
     fn tick(&self, allocator: &mut A) {
-        let pc = self.registers(allocator).pc();
-
-        let exception: Option<Exception> = match self.fetch_instruction(allocator, pc) {
-            Err(exception) => Some(exception),
-            Ok(raw_instruction) => self
-                .execute_raw_instruction(allocator, raw_instruction)
-                .err(),
-        };
-
-        if let Some(exception) = exception {
-            self.trap(allocator, exception.into());
-        }
+        self.step(allocator)
     }
 
     fn drop(self, allocator: &mut A) {
@@ -895,7 +932,7 @@ impl From<CsrAccessError> for CsrWriteError {
 
 /// Result of executing a single instruction. [`Ok`] if execution went normal, [`Err`] if an
 /// exception occurred.
-pub type ExecutionResult = Result<(), Exception>;
+pub type ExecutionResult<T = ()> = Result<T, Exception>;
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum Exception {

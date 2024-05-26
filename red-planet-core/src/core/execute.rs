@@ -551,7 +551,7 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
         if self.core.privilege_mode(self.allocator) < PrivilegeLevel::Supervisor {
             return Err(Exception::IllegalInstruction(None));
         }
-        let status = self.core.status_mut(self.allocator);
+        let status = self.core.status.get_mut(self.allocator);
         let pp = status.spp();
         // Set xIE to xPIE.
         status.set_sie(status.spie());
@@ -575,7 +575,7 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
         if self.core.privilege_mode(self.allocator) < PrivilegeLevel::Machine {
             return Err(Exception::IllegalInstruction(None));
         }
-        let status = self.core.status_mut(self.allocator);
+        let status = self.core.status.get_mut(self.allocator);
         let pp = status.mpp();
         // Set xIE to xPIE.
         status.set_mie(status.mpie());

@@ -193,7 +193,7 @@ impl<A: Allocator> Board<A> {
 
 impl<A: Allocator> Simulatable<A> for Board<A> {
     fn tick(&self, allocator: &mut A) {
-        self.core.tick(allocator)
+        self.core.step(allocator)
     }
 
     fn drop(self, allocator: &mut A) {

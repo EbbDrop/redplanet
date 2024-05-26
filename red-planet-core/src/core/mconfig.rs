@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 use bitvec::{order::Lsb0, view::BitView};
 
 #[derive(Debug, Clone)]

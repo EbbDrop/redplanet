@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 use bitvec::{field::BitField, order::Lsb0, view::BitView};
 
 use crate::{PrivilegeLevel, RawPrivilegeLevel};
@@ -5,7 +7,7 @@ use crate::{PrivilegeLevel, RawPrivilegeLevel};
 // Mask to be applied to mstatus to get sstatus.
 const SSTATUS_MASK: u32 = 0b1111_1111_1000_1101_1110_0111_0111_0111;
 
-/// Provides the mstatus, mstatush, and sstatus registers.
+/// Provides the mstatus, mstatush, sstatus, and sstatush registers.
 ///
 /// > The mstatus register is an MXLEN-bit read/write register [...]. The mstatus register keeps
 /// > track of and controls the hart’s current operating state. A restricted view of mstatus appears
