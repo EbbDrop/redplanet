@@ -1,6 +1,6 @@
 //! Provides a simulatable RV32I core implementation.
 
-mod control;
+mod counter_control;
 mod counters;
 pub mod csr;
 mod execute;
@@ -17,7 +17,7 @@ use crate::registers::Registers;
 use crate::simulator::Simulatable;
 use crate::system_bus::SystemBus;
 use crate::{Allocated, Allocator, Endianness, PrivilegeLevel, RawPrivilegeLevel};
-use control::Control;
+use counter_control::CounterControl;
 use counters::Counters;
 use execute::Executor;
 use mconfig::Mconfig;
@@ -116,16 +116,19 @@ pub struct Core<A: Allocator, B: SystemBus<A>> {
     ///
     /// Allocated separately, because these are often mutated independently of other registers.
     status: Allocated<A, Status>,
-    /// All CSR counter registers.
+    /// All counter registers.
     ///
     /// Allocated together, since most of them will be updated simultaneously.
     counters: Allocated<A, Counters>,
+    /// Counter control registers (mcounteren, mcountinhibit, scounteren).
+    ///
+    /// Allocated separately from counters, since they will likely not be updated as frequently.
+    counter_control: Allocated<A, CounterControl>,
     /// Trap-related registers.
     ///
     /// Allocated together, because they are most often all written when taking a trap, or returning
     /// from one.
     trap: Allocated<A, Trap>,
-    control: Allocated<A, Control>,
     mconfig: Allocated<A, Mconfig>,
 }
 
@@ -188,7 +191,7 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
             counters: Allocated::new(allocator, Counters::new()),
             status: Allocated::new(allocator, Status::new()),
             privilege_mode: Allocated::new(allocator, PrivilegeLevel::Machine),
-            control: Allocated::new(allocator, Control::new()),
+            counter_control: Allocated::new(allocator, CounterControl::new()),
             mconfig: Allocated::new(allocator, Mconfig::new()),
         }
     }
@@ -275,7 +278,7 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
         // Switch to M-mode.
         *self.privilege_mode.get_mut(allocator) = PrivilegeLevel::Machine;
         // Reset control registers.
-        *self.control.get_mut(allocator) = Control::new();
+        *self.counter_control.get_mut(allocator) = CounterControl::new();
         // Reset mconfig register.
         *self.mconfig.get_mut(allocator) = Mconfig::new();
     }
@@ -381,15 +384,15 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
                 let offset = 3 + (specifier - csr::MHPMEVENT3);
                 Ok(self.read_mhpmevent(allocator, offset as u8))
             }
-            csr::MCOUNTINHIBIT => Ok(self.control.get(allocator).mcountinhibit.read()),
+            csr::MCOUNTINHIBIT => Ok(self.read_mcountinhibit(allocator)),
             //
             // Trap setup registers
             //
             csr::MTVEC => Ok(self.read_mtvec(allocator)),
             csr::MEDELEG => Ok(self.read_medeleg(allocator)),
-            csr::MCOUNTEREN => Ok(self.control.get(allocator).mcounteren.read()),
+            csr::MCOUNTEREN => Ok(self.read_mcounteren(allocator)),
             csr::STVEC => Ok(self.read_stvec(allocator)),
-            csr::SCOUNTEREN => Ok(self.control.get(allocator).scounteren.read()),
+            csr::SCOUNTEREN => Ok(self.read_scounteren(allocator)),
             //
             // Machine configuration registers
             //
@@ -488,27 +491,15 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
                 let offset = 3 + (specifier - csr::MHPMEVENT3);
                 self.write_mhpmevent(allocator, offset as u8, value, mask);
             }
-            csr::MCOUNTINHIBIT => self
-                .control
-                .get_mut(allocator)
-                .mcountinhibit
-                .write(value, mask),
+            csr::MCOUNTINHIBIT => self.write_mcountinhibit(allocator, value, mask),
             //
             // Trap setup registers
             //
             csr::MTVEC => self.write_mtvec(allocator, value, mask),
             csr::MEDELEG => self.write_medeleg(allocator, value, mask),
-            csr::MCOUNTEREN => self
-                .control
-                .get_mut(allocator)
-                .mcounteren
-                .write(value, mask),
+            csr::MCOUNTEREN => self.write_mcounteren(allocator, value, mask),
             csr::STVEC => self.write_stvec(allocator, value, mask),
-            csr::SCOUNTEREN => self
-                .control
-                .get_mut(allocator)
-                .scounteren
-                .write(value, mask),
+            csr::SCOUNTEREN => self.write_scounteren(allocator, value, mask),
             //
             // Machine configuration registers
             //
