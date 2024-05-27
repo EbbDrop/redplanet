@@ -3,7 +3,7 @@ use space_time::allocator::Allocator;
 
 use crate::system_bus::SystemBus;
 
-use super::Core;
+use super::{Core, CsrReadResult, CsrWriteResult};
 
 #[derive(Debug, Clone)]
 pub struct CounterControl {
@@ -29,31 +29,31 @@ impl CounterControl {
 }
 
 impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
-    pub fn read_mcounteren(&self, allocator: &mut A) -> u32 {
+    pub fn read_mcounteren(&self, allocator: &mut A) -> CsrReadResult {
         self.counter_control.get(allocator).mcounteren.read()
     }
 
-    pub fn write_mcounteren(&self, allocator: &mut A, value: u32, mask: u32) {
+    pub fn write_mcounteren(&self, allocator: &mut A, value: u32, mask: u32) -> CsrWriteResult {
         let counter_control = self.counter_control.get_mut(allocator);
-        counter_control.mcounteren.write(value, mask);
+        counter_control.mcounteren.write(value, mask)
     }
 
-    pub fn read_scounteren(&self, allocator: &mut A) -> u32 {
+    pub fn read_scounteren(&self, allocator: &mut A) -> CsrReadResult {
         self.counter_control.get(allocator).scounteren.read()
     }
 
-    pub fn write_scounteren(&self, allocator: &mut A, value: u32, mask: u32) {
+    pub fn write_scounteren(&self, allocator: &mut A, value: u32, mask: u32) -> CsrWriteResult {
         let counter_control = self.counter_control.get_mut(allocator);
-        counter_control.scounteren.write(value, mask);
+        counter_control.scounteren.write(value, mask)
     }
 
-    pub fn read_mcountinhibit(&self, allocator: &mut A) -> u32 {
+    pub fn read_mcountinhibit(&self, allocator: &mut A) -> CsrReadResult {
         self.counter_control.get(allocator).mcountinhibit.read()
     }
 
-    pub fn write_mcountinhibit(&self, allocator: &mut A, value: u32, mask: u32) {
+    pub fn write_mcountinhibit(&self, allocator: &mut A, value: u32, mask: u32) -> CsrWriteResult {
         let counter_control = self.counter_control.get_mut(allocator);
-        counter_control.mcountinhibit.write(value, mask);
+        counter_control.mcountinhibit.write(value, mask)
     }
 }
 
@@ -120,12 +120,13 @@ impl Counteren {
         self.0.view_bits_mut::<Lsb0>().set(n as usize, value)
     }
 
-    fn read(&self) -> u32 {
-        self.0
+    fn read(&self) -> CsrReadResult {
+        Ok(self.0)
     }
 
-    fn write(&mut self, value: u32, mask: u32) {
+    fn write(&mut self, value: u32, mask: u32) -> CsrWriteResult {
         self.0 = self.0 & !mask | value & mask;
+        Ok(())
     }
 }
 
@@ -182,12 +183,13 @@ impl Mcountinhibit {
         self.0.view_bits_mut::<Lsb0>().set(n as usize, value)
     }
 
-    fn read(&self) -> u32 {
-        self.0
+    fn read(&self) -> CsrReadResult {
+        Ok(self.0)
     }
 
-    fn write(&mut self, value: u32, mask: u32) {
+    fn write(&mut self, value: u32, mask: u32) -> CsrWriteResult {
         // Bit 1 is always read-only 0.
         self.0 = self.0 & !mask | value & mask & !0b10;
+        Ok(())
     }
 }

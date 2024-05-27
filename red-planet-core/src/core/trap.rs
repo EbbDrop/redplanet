@@ -5,7 +5,7 @@ use space_time::allocator::Allocator;
 
 use crate::system_bus::SystemBus;
 
-use super::{Core, Exception, ExceptionCode, Interrupt};
+use super::{Core, CsrReadResult, CsrWriteResult, Exception, ExceptionCode, Interrupt};
 
 // Delegetable exceptions according to QEMU's implementation.
 #[allow(clippy::identity_op)] // To use this zero . here, which generates better formatting.
@@ -277,13 +277,13 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
     ///
     /// > An implementation may have different alignment constraints for different modes. In particular,
     /// > MODE=Vectored may have stricter alignment constraints than MODE=Direct.
-    pub fn read_mtvec(&self, allocator: &mut A) -> u32 {
+    pub fn read_mtvec(&self, allocator: &mut A) -> CsrReadResult {
         let trap = self.trap.get(allocator);
-        read_tvec(trap.m_vector_base_address, trap.m_vector_mode)
+        Ok(read_tvec(trap.m_vector_base_address, trap.m_vector_mode))
     }
 
     /// Write mtvec register. See [`Self::read_mtvec`].
-    pub fn write_mtvec(&self, allocator: &mut A, value: u32, mask: u32) {
+    pub fn write_mtvec(&self, allocator: &mut A, value: u32, mask: u32) -> CsrWriteResult {
         let trap = self.trap.get_mut(allocator);
         write_tvec(
             &mut trap.m_vector_base_address,
@@ -291,6 +291,7 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
             value,
             mask,
         );
+        Ok(())
     }
 
     /// Read stvec register.
@@ -310,13 +311,13 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
     /// > four times the interrupt cause number. For example, a supervisor-mode timer interrupt [...]
     /// > causes the pc to be set to BASE+0x14. Setting MODE=Vectored may impose a stricter alignment
     /// > constraint on BASE.
-    pub fn read_stvec(&self, allocator: &mut A) -> u32 {
+    pub fn read_stvec(&self, allocator: &mut A) -> CsrReadResult {
         let trap = self.trap.get(allocator);
-        read_tvec(trap.s_vector_base_address, trap.s_vector_mode)
+        Ok(read_tvec(trap.s_vector_base_address, trap.s_vector_mode))
     }
 
     /// Write stvec register. See [`Self::read_stvec`].
-    pub fn write_stvec(&self, allocator: &mut A, value: u32, mask: u32) {
+    pub fn write_stvec(&self, allocator: &mut A, value: u32, mask: u32) -> CsrWriteResult {
         let trap = self.trap.get_mut(allocator);
         write_tvec(
             &mut trap.s_vector_base_address,
@@ -324,50 +325,55 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
             value,
             mask,
         );
+        Ok(())
     }
 
-    pub fn read_mscratch(&self, allocator: &mut A) -> u32 {
-        self.trap.get(allocator).mscratch
+    pub fn read_mscratch(&self, allocator: &mut A) -> CsrReadResult {
+        Ok(self.trap.get(allocator).mscratch)
     }
 
-    pub fn write_mscratch(&self, allocator: &mut A, value: u32, mask: u32) {
+    pub fn write_mscratch(&self, allocator: &mut A, value: u32, mask: u32) -> CsrWriteResult {
         let mscratch = &mut self.trap.get_mut(allocator).mscratch;
         *mscratch = *mscratch & !mask | value & mask;
+        Ok(())
     }
 
-    pub fn read_sscratch(&self, allocator: &mut A) -> u32 {
-        self.trap.get(allocator).sscratch
+    pub fn read_sscratch(&self, allocator: &mut A) -> CsrReadResult {
+        Ok(self.trap.get(allocator).sscratch)
     }
 
-    pub fn write_sscratch(&self, allocator: &mut A, value: u32, mask: u32) {
+    pub fn write_sscratch(&self, allocator: &mut A, value: u32, mask: u32) -> CsrWriteResult {
         let sscratch = &mut self.trap.get_mut(allocator).sscratch;
         *sscratch = *sscratch & !mask | value & mask;
+        Ok(())
     }
 
-    pub fn read_mepc(&self, allocator: &mut A) -> u32 {
-        self.trap.get(allocator).mepc
+    pub fn read_mepc(&self, allocator: &mut A) -> CsrReadResult {
+        Ok(self.trap.get(allocator).mepc)
     }
 
-    pub fn write_mepc(&self, allocator: &mut A, value: u32, mask: u32) {
+    pub fn write_mepc(&self, allocator: &mut A, value: u32, mask: u32) -> CsrWriteResult {
         let mepc = &mut self.trap.get_mut(allocator).mepc;
         *mepc = *mepc & !mask | value & mask & !0b11;
+        Ok(())
     }
 
-    pub fn read_sepc(&self, allocator: &mut A) -> u32 {
-        self.trap.get(allocator).sepc
+    pub fn read_sepc(&self, allocator: &mut A) -> CsrReadResult {
+        Ok(self.trap.get(allocator).sepc)
     }
 
-    pub fn write_sepc(&self, allocator: &mut A, value: u32, mask: u32) {
+    pub fn write_sepc(&self, allocator: &mut A, value: u32, mask: u32) -> CsrWriteResult {
         let sepc = &mut self.trap.get_mut(allocator).sepc;
         *sepc = *sepc & !mask | value & mask & !0b11;
+        Ok(())
     }
 
-    pub fn read_mcause(&self, allocator: &mut A) -> u32 {
+    pub fn read_mcause(&self, allocator: &mut A) -> CsrReadResult {
         let trap = self.trap.get(allocator);
-        read_cause(&trap.last_m_trap_cause, &trap.mcause_override)
+        Ok(read_cause(&trap.last_m_trap_cause, &trap.mcause_override))
     }
 
-    pub fn write_mcause(&self, allocator: &mut A, value: u32, mask: u32) {
+    pub fn write_mcause(&self, allocator: &mut A, value: u32, mask: u32) -> CsrWriteResult {
         let trap = self.trap.get_mut(allocator);
         write_cause(
             &trap.last_m_trap_cause,
@@ -375,14 +381,15 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
             value,
             mask,
         );
+        Ok(())
     }
 
-    pub fn read_scause(&self, allocator: &mut A) -> u32 {
+    pub fn read_scause(&self, allocator: &mut A) -> CsrReadResult {
         let trap = self.trap.get(allocator);
-        read_cause(&trap.last_m_trap_cause, &trap.scause_override)
+        Ok(read_cause(&trap.last_m_trap_cause, &trap.scause_override))
     }
 
-    pub fn write_scause(&self, allocator: &mut A, value: u32, mask: u32) {
+    pub fn write_scause(&self, allocator: &mut A, value: u32, mask: u32) -> CsrWriteResult {
         let trap = self.trap.get_mut(allocator);
         write_cause(
             &trap.last_s_trap_cause,
@@ -390,64 +397,71 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
             value,
             mask,
         );
+        Ok(())
     }
 
-    pub fn read_medeleg(&self, allocator: &mut A) -> u32 {
-        self.trap.get(allocator).delegate_exception.load_le()
+    pub fn read_medeleg(&self, allocator: &mut A) -> CsrReadResult {
+        Ok(self.trap.get(allocator).delegate_exception.load_le())
     }
 
     /// The medeleg register is **WARL**.
-    pub fn write_medeleg(&self, allocator: &mut A, value: u32, mask: u32) {
+    pub fn write_medeleg(&self, allocator: &mut A, value: u32, mask: u32) -> CsrWriteResult {
         let medeleg = &mut self.trap.get_mut(allocator).delegate_exception;
         let old_value = medeleg.load_le::<u32>();
         medeleg.store_le(old_value & !mask | value & mask & DELEGATABLE_EXCEPTIONS_MASK);
+        Ok(())
     }
 
-    pub fn read_mideleg(&self, allocator: &mut A) -> u32 {
-        self.trap.get(allocator).delegate_interrupt.load_le()
+    pub fn read_mideleg(&self, allocator: &mut A) -> CsrReadResult {
+        Ok(self.trap.get(allocator).delegate_interrupt.load_le())
     }
 
     /// The mideleg register is **WARL**.
-    pub fn write_mideleg(&self, allocator: &mut A, value: u32, mask: u32) {
+    pub fn write_mideleg(&self, allocator: &mut A, value: u32, mask: u32) -> CsrWriteResult {
         let mideleg = &mut self.trap.get_mut(allocator).delegate_interrupt;
         let old_value = mideleg.load_le::<u32>();
         mideleg.store_le(old_value & !mask | value & mask & DELEGATABLE_INTERRUPTS_MASK);
+        Ok(())
     }
 
-    pub fn read_mtval(&self, allocator: &mut A) -> u32 {
-        self.trap.get(allocator).mtval
+    pub fn read_mtval(&self, allocator: &mut A) -> CsrReadResult {
+        Ok(self.trap.get(allocator).mtval)
     }
 
-    pub fn write_mtval(&self, allocator: &mut A, value: u32, mask: u32) {
+    pub fn write_mtval(&self, allocator: &mut A, value: u32, mask: u32) -> CsrWriteResult {
         let mtval = &mut self.trap.get_mut(allocator).mtval;
         *mtval = *mtval & !mask | value & mask;
+        Ok(())
     }
 
-    pub fn read_mtval2(&self, allocator: &mut A) -> u32 {
-        self.trap.get(allocator).mtval2
+    pub fn read_mtval2(&self, allocator: &mut A) -> CsrReadResult {
+        Ok(self.trap.get(allocator).mtval2)
     }
 
-    pub fn write_mtval2(&self, allocator: &mut A, value: u32, mask: u32) {
+    pub fn write_mtval2(&self, allocator: &mut A, value: u32, mask: u32) -> CsrWriteResult {
         let mtval2 = &mut self.trap.get_mut(allocator).mtval2;
         *mtval2 = *mtval2 & !mask | value & mask;
+        Ok(())
     }
 
-    pub fn read_mtinst(&self, allocator: &mut A) -> u32 {
-        self.trap.get(allocator).mtinst
+    pub fn read_mtinst(&self, allocator: &mut A) -> CsrReadResult {
+        Ok(self.trap.get(allocator).mtinst)
     }
 
-    pub fn write_mtinst(&self, allocator: &mut A, value: u32, mask: u32) {
+    pub fn write_mtinst(&self, allocator: &mut A, value: u32, mask: u32) -> CsrWriteResult {
         let mtinst = &mut self.trap.get_mut(allocator).mtinst;
         *mtinst = *mtinst & !mask | value & mask;
+        Ok(())
     }
 
-    pub fn read_stval(&self, allocator: &mut A) -> u32 {
-        self.trap.get(allocator).stval
+    pub fn read_stval(&self, allocator: &mut A) -> CsrReadResult {
+        Ok(self.trap.get(allocator).stval)
     }
 
-    pub fn write_stval(&self, allocator: &mut A, value: u32, mask: u32) {
+    pub fn write_stval(&self, allocator: &mut A, value: u32, mask: u32) -> CsrWriteResult {
         let stval = &mut self.trap.get_mut(allocator).stval;
         *stval = *stval & !mask | value & mask;
+        Ok(())
     }
 }
 

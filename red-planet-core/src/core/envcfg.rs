@@ -5,7 +5,7 @@ use space_time::allocator::Allocator;
 
 use crate::system_bus::SystemBus;
 
-use super::Core;
+use super::{Core, CsrReadResult, CsrWriteResult};
 
 /// Provides menvcfg, menvcfgh, and senvcfg registers.
 #[derive(Debug, Clone)]
@@ -74,30 +74,33 @@ mod hidx {
 }
 
 impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
-    pub fn read_menvcfg(&self, allocator: &mut A) -> u32 {
-        self.envcfg.get(allocator).menvcfg
+    pub fn read_menvcfg(&self, allocator: &mut A) -> CsrReadResult {
+        Ok(self.envcfg.get(allocator).menvcfg)
     }
 
-    pub fn write_menvcfg(&self, allocator: &mut A, value: u32, mask: u32) {
+    pub fn write_menvcfg(&self, allocator: &mut A, value: u32, mask: u32) -> CsrWriteResult {
         let menvcfg = &mut self.envcfg.get_mut(allocator).menvcfg;
         *menvcfg = *menvcfg & !mask | value & mask;
+        Ok(())
     }
 
-    pub fn read_menvcfgh(&self, allocator: &mut A) -> u32 {
-        self.envcfg.get(allocator).menvcfgh
+    pub fn read_menvcfgh(&self, allocator: &mut A) -> CsrReadResult {
+        Ok(self.envcfg.get(allocator).menvcfgh)
     }
 
-    pub fn write_menvcfgh(&self, allocator: &mut A, value: u32, mask: u32) {
+    pub fn write_menvcfgh(&self, allocator: &mut A, value: u32, mask: u32) -> CsrWriteResult {
         let menvcfgh = &mut self.envcfg.get_mut(allocator).menvcfgh;
         *menvcfgh = *menvcfgh & !mask | value & mask;
+        Ok(())
     }
 
-    pub fn read_senvcfg(&self, allocator: &mut A) -> u32 {
-        self.envcfg.get(allocator).senvcfg
+    pub fn read_senvcfg(&self, allocator: &mut A) -> CsrReadResult {
+        Ok(self.envcfg.get(allocator).senvcfg)
     }
 
-    pub fn write_senvcfg(&self, allocator: &mut A, value: u32, mask: u32) {
+    pub fn write_senvcfg(&self, allocator: &mut A, value: u32, mask: u32) -> CsrWriteResult {
         let senvcfg = &mut self.envcfg.get_mut(allocator).senvcfg;
         *senvcfg = *senvcfg & !mask | value & mask;
+        Ok(())
     }
 }

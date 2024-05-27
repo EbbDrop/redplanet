@@ -312,7 +312,7 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
         allocator: &mut A,
         specifier: CsrSpecifier,
         privilege_level: PrivilegeLevel,
-    ) -> Result<u32, CsrAccessError> {
+    ) -> CsrReadResult {
         self.check_csr_access(allocator, specifier, privilege_level)?;
         // Ordered according to CSR Listing in the privileged spec.
         match specifier {
@@ -325,38 +325,38 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
             //
             // Unprivileged Counter/Timers
             //
-            csr::CYCLE => Ok(self.read_cycle(allocator)),
-            csr::TIME => Ok(self.read_mtime(allocator) as u32),
-            csr::INSTRET => Ok(self.read_instret(allocator)),
+            csr::CYCLE => self.read_cycle(allocator),
+            csr::TIME => self.read_time(allocator),
+            csr::INSTRET => self.read_instret(allocator),
             csr::HPMCOUNTER3..=csr::HPMCOUNTER31 => {
                 let offset = 3 + (specifier - csr::HPMCOUNTER3);
-                Ok(self.read_hpmcounter(allocator, offset as u8))
+                self.read_hpmcounter(allocator, offset as u8)
             }
-            csr::CYCLEH => Ok(self.read_cycleh(allocator)),
-            csr::TIMEH => Ok((self.read_mtime(allocator) >> 32) as u32),
-            csr::INSTRETH => Ok(self.read_instreth(allocator)),
+            csr::CYCLEH => self.read_cycleh(allocator),
+            csr::TIMEH => self.read_timeh(allocator),
+            csr::INSTRETH => self.read_instreth(allocator),
             csr::HPMCOUNTER3H..=csr::HPMCOUNTER31H => {
                 let offset = 3 + (specifier - csr::HPMCOUNTER3H);
-                Ok(self.read_hpmcounterh(allocator, offset as u8))
+                self.read_hpmcounterh(allocator, offset as u8)
             }
             //
             // Supervisor Trap Setup
             //
-            csr::SSTATUS => Ok(self.read_sstatus(allocator)),
+            csr::SSTATUS => self.read_sstatus(allocator),
             csr::SIE => todo!(),
-            csr::STVEC => Ok(self.read_stvec(allocator)),
-            csr::SCOUNTEREN => Ok(self.read_scounteren(allocator)),
+            csr::STVEC => self.read_stvec(allocator),
+            csr::SCOUNTEREN => self.read_scounteren(allocator),
             //
             // Supervisor Configuration
             //
-            csr::SENVCFG => Ok(self.read_menvcfg(allocator)),
+            csr::SENVCFG => self.read_menvcfg(allocator),
             //
             // Supervisor Trap Handling
             //
-            csr::SSCRATCH => Ok(self.read_sscratch(allocator)),
-            csr::SEPC => Ok(self.read_sepc(allocator)),
-            csr::SCAUSE => Ok(self.read_scause(allocator)),
-            csr::STVAL => Ok(self.read_stval(allocator)),
+            csr::SSCRATCH => self.read_sscratch(allocator),
+            csr::SEPC => self.read_sepc(allocator),
+            csr::SCAUSE => self.read_scause(allocator),
+            csr::STVAL => self.read_stval(allocator),
             csr::SIP => todo!(),
             //
             // Machine Information Registers
@@ -369,29 +369,29 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
             //
             // Machine Trap Setup
             //
-            csr::MSTATUS => Ok(self.read_mstatus(allocator)),
+            csr::MSTATUS => self.read_mstatus(allocator),
             csr::MISA => Ok(Self::MISA),
-            csr::MEDELEG => Ok(self.read_medeleg(allocator)),
-            csr::MIDELEG => Ok(self.read_mideleg(allocator)),
+            csr::MEDELEG => self.read_medeleg(allocator),
+            csr::MIDELEG => self.read_mideleg(allocator),
             csr::MIE => todo!(),
-            csr::MTVEC => Ok(self.read_mtvec(allocator)),
-            csr::MCOUNTEREN => Ok(self.read_mcounteren(allocator)),
-            csr::MSTATUSH => Ok(self.read_mstatush(allocator)),
+            csr::MTVEC => self.read_mtvec(allocator),
+            csr::MCOUNTEREN => self.read_mcounteren(allocator),
+            csr::MSTATUSH => self.read_mstatush(allocator),
             //
             // Machine Trap Handling
             //
-            csr::MSCRATCH => Ok(self.read_mscratch(allocator)),
-            csr::MEPC => Ok(self.read_mepc(allocator)),
-            csr::MCAUSE => Ok(self.read_mcause(allocator)),
-            csr::MTVAL => Ok(self.read_mtval(allocator)),
+            csr::MSCRATCH => self.read_mscratch(allocator),
+            csr::MEPC => self.read_mepc(allocator),
+            csr::MCAUSE => self.read_mcause(allocator),
+            csr::MTVAL => self.read_mtval(allocator),
             csr::MIP => todo!("must be able to write to SEIP"),
-            csr::MTINST => Ok(self.read_mtinst(allocator)),
-            csr::MTVAL2 => Ok(self.read_mtval2(allocator)),
+            csr::MTINST => self.read_mtinst(allocator),
+            csr::MTVAL2 => self.read_mtval2(allocator),
             //
             // Machine Configuration
             //
-            csr::MENVCFG => Ok(self.read_menvcfg(allocator)),
-            csr::MENVCFGH => Ok(self.read_menvcfgh(allocator)),
+            csr::MENVCFG => self.read_menvcfg(allocator),
+            csr::MENVCFGH => self.read_menvcfgh(allocator),
             csr::MSECCFG | csr::MSECCFGH => Err(CsrAccessError::CsrUnsupported(specifier)),
             //
             // Machine Memory Protection
@@ -401,25 +401,25 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
             //
             // Machine Counters/Timers
             //
-            csr::MCYCLE => Ok(self.read_mcycle(allocator)),
-            csr::MINSTRET => Ok(self.read_minstret(allocator)),
+            csr::MCYCLE => self.read_mcycle(allocator),
+            csr::MINSTRET => self.read_minstret(allocator),
             csr::MHPMCOUNTER3..=csr::MHPMCOUNTER31 => {
                 let offset = 3 + (specifier - csr::MHPMCOUNTER3);
-                Ok(self.read_mhpmcounter(allocator, offset as u8))
+                self.read_mhpmcounter(allocator, offset as u8)
             }
-            csr::MCYCLEH => Ok(self.read_mcycleh(allocator)),
-            csr::MINSTRETH => Ok(self.read_minstreth(allocator)),
+            csr::MCYCLEH => self.read_mcycleh(allocator),
+            csr::MINSTRETH => self.read_minstreth(allocator),
             csr::MHPMCOUNTER3H..=csr::MHPMCOUNTER31H => {
                 let offset = 3 + (specifier - csr::MHPMCOUNTER3H);
-                Ok(self.read_mhpmcounterh(allocator, offset as u8))
+                self.read_mhpmcounterh(allocator, offset as u8)
             }
             //
             // Machine Counter Setup
             //
-            csr::MCOUNTINHIBIT => Ok(self.read_mcountinhibit(allocator)),
+            csr::MCOUNTINHIBIT => self.read_mcountinhibit(allocator),
             csr::MHPMEVENT3..=csr::MHPMEVENT31 => {
                 let offset = 3 + (specifier - csr::MHPMEVENT3);
-                Ok(self.read_mhpmevent(allocator, offset as u8))
+                self.read_mhpmevent(allocator, offset as u8)
             }
             //
             // Debug/Trace Registers
@@ -445,7 +445,7 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
         privilege_level: PrivilegeLevel,
         value: u32,
         mask: u32,
-    ) -> Result<(), CsrWriteError> {
+    ) -> CsrWriteResult {
         self.check_csr_access(allocator, specifier, privilege_level)?;
         if csr::is_read_only(specifier) {
             return Err(CsrWriteError::WriteToReadOnly);
@@ -498,7 +498,7 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
             // Machine Trap Setup
             //
             csr::MSTATUS => self.write_mstatus(allocator, value, mask),
-            csr::MISA => {}
+            csr::MISA => Ok(()),
             csr::MEDELEG => self.write_medeleg(allocator, value, mask),
             csr::MIDELEG => self.write_mideleg(allocator, value, mask),
             csr::MIE => todo!(),
@@ -533,13 +533,13 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
             csr::MINSTRET => self.write_minstret(allocator, value, mask),
             csr::MHPMCOUNTER3..=csr::MHPMCOUNTER31 => {
                 let offset = 3 + (specifier - csr::MHPMCOUNTER3);
-                self.write_mhpmcounter(allocator, offset as u8, value, mask);
+                self.write_mhpmcounter(allocator, offset as u8, value, mask)
             }
             csr::MCYCLEH => self.write_mcycleh(allocator, value, mask),
             csr::MINSTRETH => self.write_minstreth(allocator, value, mask),
             csr::MHPMCOUNTER3H..=csr::MHPMCOUNTER31H => {
                 let offset = 3 + (specifier - csr::MHPMCOUNTER3H);
-                self.write_mhpmcounterh(allocator, offset as u8, value, mask);
+                self.write_mhpmcounterh(allocator, offset as u8, value, mask)
             }
             //
             // Machine Counter Setup
@@ -547,7 +547,7 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
             csr::MCOUNTINHIBIT => self.write_mcountinhibit(allocator, value, mask),
             csr::MHPMEVENT3..=csr::MHPMEVENT31 => {
                 let offset = 3 + (specifier - csr::MHPMEVENT3);
-                self.write_mhpmevent(allocator, offset as u8, value, mask);
+                self.write_mhpmevent(allocator, offset as u8, value, mask)
             }
             //
             // Debug/Trace Registers
@@ -555,7 +555,6 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
             csr::TSELECT | csr::TDATA1 | csr::TDATA2 | csr::TDATA3 | csr::MCONTEXT => todo!(),
             _ => Err(CsrAccessError::CsrUnsupported(specifier))?,
         }
-        Ok(())
     }
 
     fn check_csr_access(
@@ -939,6 +938,9 @@ impl<A: Allocator, B: SystemBus<A>> Simulatable<A> for Core<A, B> {
     }
 }
 
+pub type CsrReadResult = Result<u32, CsrAccessError>;
+pub type CsrWriteResult = Result<(), CsrWriteError>;
+
 /// Errors that can occur when attempting to access a CSR.
 #[derive(Error, Debug)]
 pub enum CsrAccessError {
@@ -957,6 +959,8 @@ pub enum CsrAccessError {
         /// The actual privilegel level from which the access was performed.
         actual_level: PrivilegeLevel,
     },
+    #[error("CSR unavailable: {0}")]
+    CsrUnavailable(String),
 }
 
 /// Errors that can occur when attempting to write to a CSR.

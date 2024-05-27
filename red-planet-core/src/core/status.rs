@@ -5,7 +5,7 @@ use space_time::allocator::Allocator;
 
 use crate::{system_bus::SystemBus, PrivilegeLevel, RawPrivilegeLevel};
 
-use super::Core;
+use super::{Core, CsrReadResult, CsrWriteResult};
 
 // Mask to be applied to mstatus to get sstatus.
 const SSTATUS_MASK: u32 = 0b1111_1111_1000_1101_1110_0111_0111_0111;
@@ -346,11 +346,11 @@ impl ExtensionContextStatus {
 }
 
 impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
-    pub fn read_mstatus(&self, allocator: &mut A) -> u32 {
-        self.status.get(allocator).mstatus
+    pub fn read_mstatus(&self, allocator: &mut A) -> CsrReadResult {
+        Ok(self.status.get(allocator).mstatus)
     }
 
-    pub fn write_mstatus(&self, allocator: &mut A, value: u32, mask: u32) {
+    pub fn write_mstatus(&self, allocator: &mut A, value: u32, mask: u32) -> CsrWriteResult {
         let status = self.status.get_mut(allocator);
 
         let mask_bits = value.view_bits::<Lsb0>();
@@ -413,13 +413,14 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
             status.set_tsr(updated_bits[idx::TSR]);
         }
         // Ignore read-only fields, and the remaining WPRI fields.
+        Ok(())
     }
 
-    pub fn read_mstatush(&self, allocator: &mut A) -> u32 {
-        self.status.get(allocator).mstatush
+    pub fn read_mstatush(&self, allocator: &mut A) -> CsrReadResult {
+        Ok(self.status.get(allocator).mstatush)
     }
 
-    pub fn write_mstatush(&self, allocator: &mut A, value: u32, mask: u32) {
+    pub fn write_mstatush(&self, allocator: &mut A, value: u32, mask: u32) -> CsrWriteResult {
         let status = self.status.get_mut(allocator);
         let mask_bits = mask.view_bits::<Lsb0>();
         let value_bits = value.view_bits::<Lsb0>();
@@ -431,13 +432,14 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
             status.set_sbe(value_bits[hidx::SBE]);
         }
         // Ignore the remaining WPRI fields.
+        Ok(())
     }
 
-    pub fn read_sstatus(&self, allocator: &mut A) -> u32 {
-        self.status.get(allocator).mstatus & SSTATUS_MASK
+    pub fn read_sstatus(&self, allocator: &mut A) -> CsrReadResult {
+        Ok(self.status.get(allocator).mstatus & SSTATUS_MASK)
     }
 
-    pub fn write_sstatus(&self, allocator: &mut A, value: u32, mask: u32) {
-        self.write_mstatus(allocator, value, mask & SSTATUS_MASK);
+    pub fn write_sstatus(&self, allocator: &mut A, value: u32, mask: u32) -> CsrWriteResult {
+        self.write_mstatus(allocator, value, mask & SSTATUS_MASK)
     }
 }
