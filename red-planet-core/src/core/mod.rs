@@ -5,6 +5,7 @@ mod counters;
 pub mod csr;
 mod envcfg;
 mod execute;
+mod interrupts;
 mod mmu;
 mod status;
 mod trap;
@@ -21,6 +22,7 @@ use counter_control::CounterControl;
 use counters::Counters;
 use envcfg::Envcfg;
 use execute::Executor;
+use interrupts::Interrupts;
 use mmu::Mmu;
 use status::Status;
 use std::fmt::Debug;
@@ -129,6 +131,10 @@ pub struct Core<A: Allocator, B: SystemBus<A>> {
     /// Allocated together, because they are most often all written when taking a trap, or returning
     /// from one.
     trap: Allocated<A, Trap>,
+    /// Interrupt (mip, mie, sip, sie) registers.
+    ///
+    /// Allocated together, because they are most often accessed together.
+    interrupts: Allocated<A, Interrupts>,
     /// Envcfg (menvcfg, menvcfgh, senvcfg) registers.
     ///
     /// Allocated separately, because these are mutated independently of other registers, and likely
@@ -191,11 +197,12 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
             config,
             system_bus,
             registers,
-            trap: Allocated::new(allocator, Trap::new()),
-            counters: Allocated::new(allocator, Counters::new()),
-            status: Allocated::new(allocator, Status::new()),
             privilege_mode: Allocated::new(allocator, PrivilegeLevel::Machine),
+            status: Allocated::new(allocator, Status::new()),
+            counters: Allocated::new(allocator, Counters::new()),
             counter_control: Allocated::new(allocator, CounterControl::new()),
+            trap: Allocated::new(allocator, Trap::new()),
+            interrupts: Allocated::new(allocator, Interrupts::new()),
             envcfg: Allocated::new(allocator, Envcfg::new()),
         }
     }
@@ -343,7 +350,7 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
             // Supervisor Trap Setup
             //
             csr::SSTATUS => self.read_sstatus(allocator),
-            csr::SIE => todo!(),
+            csr::SIE => self.read_sie(allocator),
             csr::STVEC => self.read_stvec(allocator),
             csr::SCOUNTEREN => self.read_scounteren(allocator),
             //
@@ -357,7 +364,7 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
             csr::SEPC => self.read_sepc(allocator),
             csr::SCAUSE => self.read_scause(allocator),
             csr::STVAL => self.read_stval(allocator),
-            csr::SIP => todo!(),
+            csr::SIP => self.read_sip(allocator),
             //
             // Machine Information Registers
             //
@@ -373,7 +380,7 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
             csr::MISA => Ok(Self::MISA),
             csr::MEDELEG => self.read_medeleg(allocator),
             csr::MIDELEG => self.read_mideleg(allocator),
-            csr::MIE => todo!(),
+            csr::MIE => self.read_mie(allocator),
             csr::MTVEC => self.read_mtvec(allocator),
             csr::MCOUNTEREN => self.read_mcounteren(allocator),
             csr::MSTATUSH => self.read_mstatush(allocator),
@@ -384,7 +391,7 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
             csr::MEPC => self.read_mepc(allocator),
             csr::MCAUSE => self.read_mcause(allocator),
             csr::MTVAL => self.read_mtval(allocator),
-            csr::MIP => todo!("must be able to write to SEIP"),
+            csr::MIP => self.read_mip(allocator),
             csr::MTINST => self.read_mtinst(allocator),
             csr::MTVAL2 => self.read_mtval2(allocator),
             //
@@ -473,7 +480,7 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
             // Supervisor Trap Setup
             //
             csr::SSTATUS => self.write_sstatus(allocator, value, mask),
-            csr::SIE => todo!(),
+            csr::SIE => self.write_sie(allocator, value, mask),
             csr::STVEC => self.write_stvec(allocator, value, mask),
             csr::SCOUNTEREN => self.write_scounteren(allocator, value, mask),
             //
@@ -487,7 +494,7 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
             csr::SEPC => self.write_sepc(allocator, value, mask),
             csr::SCAUSE => self.write_scause(allocator, value, mask),
             csr::STVAL => self.write_stval(allocator, value, mask),
-            csr::SIP => todo!(),
+            csr::SIP => self.write_sip(allocator, value, mask),
             //
             // Machine Information Registers (read-only)
             //
@@ -501,7 +508,7 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
             csr::MISA => Ok(()),
             csr::MEDELEG => self.write_medeleg(allocator, value, mask),
             csr::MIDELEG => self.write_mideleg(allocator, value, mask),
-            csr::MIE => todo!(),
+            csr::MIE => self.write_mie(allocator, value, mask),
             csr::MTVEC => self.write_mtvec(allocator, value, mask),
             csr::MCOUNTEREN => self.write_mcounteren(allocator, value, mask),
             csr::MSTATUSH => self.write_mstatush(allocator, value, mask),
@@ -512,7 +519,7 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
             csr::MEPC => self.write_mepc(allocator, value, mask),
             csr::MCAUSE => self.write_mcause(allocator, value, mask),
             csr::MTVAL => self.write_mtval(allocator, value, mask),
-            csr::MIP => todo!("must be able to write to SEIP"),
+            csr::MIP => self.write_mip(allocator, value, mask),
             csr::MTINST => self.write_mtinst(allocator, value, mask),
             csr::MTVAL2 => self.write_mtval2(allocator, value, mask),
             //
@@ -846,13 +853,22 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
         address
     }
 
+    /// Checks whether any interrupts are pending and can be taken. If so, it executes the
+    /// appopriate trap logic.
+    ///
+    /// If this method is called while executing an instruction, nothing will be done.
+    #[allow(dead_code)]
+    fn check_for_interrupts(&self, _allocator: &mut A) {
+        todo!()
+    }
+
     fn trap(&self, allocator: &mut A, cause: Cause) {
         let pc = self.registers(allocator).pc();
         let privilege_mode = *self.privilege_mode.get(allocator);
-        let trap = self.trap.get_mut(allocator);
         // Determine whether we are trapping into S-mode or M-mode.
-        let delegate = trap.should_delegate(cause.code());
+        let delegate = self.should_delegate(allocator, cause.code());
         let trap_to_s_mode = privilege_mode != PrivilegeLevel::Machine && delegate;
+        let trap = self.trap.get_mut(allocator);
         // Set xcause and xepc register.
         match trap_to_s_mode {
             true => {
@@ -899,7 +915,7 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
         };
         let trap_handler_address = match (tvec_mode, &cause) {
             (VectorMode::Vectored, Cause::Interrupt(interrupt)) => {
-                tvec_base + 4 * interrupt.map_or(0, |i| i.code())
+                tvec_base + 4 * interrupt.map_or(0, |i| i as u32)
             }
             (VectorMode::Vectored, Cause::Exception(_)) | (VectorMode::Direct, _) => tvec_base,
         };
@@ -1103,27 +1119,14 @@ impl Exception {
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[repr(u8)]
 pub enum Interrupt {
-    SupervisorSoftwareInterrupt,
-    MachineSoftwareInterrupt,
-    SupervisorTimerInterrupt,
-    MachineTimerInterrupt,
-    SupervisorExternalInterrupt,
-    MachineExternalInterrupt,
-}
-
-impl Interrupt {
-    /// Returns the exception code (cause) for this interrupt.
-    pub fn code(&self) -> u32 {
-        match self {
-            Self::SupervisorSoftwareInterrupt => 1,
-            Self::MachineSoftwareInterrupt => 3,
-            Self::SupervisorTimerInterrupt => 5,
-            Self::MachineTimerInterrupt => 7,
-            Self::SupervisorExternalInterrupt => 9,
-            Self::MachineExternalInterrupt => 11,
-        }
-    }
+    SupervisorSoftwareInterrupt = 1,
+    MachineSoftwareInterrupt = 3,
+    SupervisorTimerInterrupt = 5,
+    MachineTimerInterrupt = 7,
+    SupervisorExternalInterrupt = 9,
+    MachineExternalInterrupt = 11,
 }
 
 impl TryFrom<u32> for Interrupt {

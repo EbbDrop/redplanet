@@ -25,9 +25,6 @@ const DELEGATABLE_EXCEPTIONS_MASK: u32 = 0  // <--'
         | (1 << ExceptionCode::LOAD_PAGE_FAULT)
         | (1 << ExceptionCode::STORE_OR_AMO_PAGE_FAULT);
 
-// Delegetable interrupts according to QEMU's implementation.
-const DELEGATABLE_INTERRUPTS_MASK: u32 = (1 << Mip::SSIP) | (1 << Mip::STIP) | (1 << Mip::SEIP);
-
 /// Stores trap-related state. See the [module documentation](self).
 #[derive(Debug, Clone)]
 pub struct Trap {
@@ -66,9 +63,6 @@ pub struct Trap {
     /// Array of booleans, with for each bit index matching an exception's code a bool indicating
     /// whether handling that exception should be delegated to S-mode (if not caused from M-mode).
     delegate_exception: BitArray<[u32; 1], Lsb0>,
-    /// Array of booleans, with for each bit index matching an interrupts's code a bool indicating
-    /// whether handling that interrupt should be delegated to S-mode (if not triggered in M-mode).
-    delegate_interrupt: BitArray<[u32; 1], Lsb0>,
 
     /// The value associated with a trap handled in M-mode, or zero if there is no such data.
     mtval: u32,
@@ -105,7 +99,6 @@ impl Trap {
             scause_override: None,
             // TODO: Should this default to 0xFFFF_FFFF?
             delegate_exception: BitArray::new([0x0000_0000]),
-            delegate_interrupt: BitArray::new([0x0000_0000]),
             mtval: 0x0000_0000,
             mtval2: 0x0000_0000,
             mtinst: 0x0000_0000,
@@ -213,23 +206,13 @@ impl Trap {
         self.scause_override = None;
     }
 
-    /// Returns `true` if the medeleg/mideleg register indicates a trap caused by `cause` should be
+    /// Returns `true` if the medeleg register indicates a trap caused by `cause` should be
     /// delegated to S-mode.
     ///
     /// Note that traps triggered in M-mode should always be handled in M-mode, even if this method
     /// returns `true`.
-    pub fn should_delegate(&self, cause: impl Into<CauseCode>) -> bool {
-        match cause.into() {
-            CauseCode::Exception(Some(exception)) => match exception as u8 {
-                code @ 0..=31 => self.delegate_exception[code as usize],
-                _ => false,
-            },
-            CauseCode::Interrupt(Some(interrupt)) => match interrupt.code() {
-                code @ 0..=31 => self.delegate_interrupt[code as usize],
-                _ => false,
-            },
-            _ => false,
-        }
+    pub fn should_delegate_exception(&self, code: ExceptionCode) -> bool {
+        self.delegate_exception[code as usize]
     }
 
     /// Sets the value of the mtval register to `value`.
@@ -254,6 +237,20 @@ impl Trap {
     // TODO: Enforce appropriate restrictions.
     pub fn set_stval(&mut self, value: u32) {
         self.stval = value;
+    }
+}
+
+impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
+    pub(super) fn should_delegate(&self, allocator: &A, cause: impl Into<CauseCode>) -> bool {
+        match cause.into() {
+            CauseCode::Exception(Some(code)) => {
+                self.trap.get(allocator).should_delegate_exception(code)
+            }
+            CauseCode::Interrupt(Some(interrupt)) => {
+                self.interrupts.get(allocator).should_delegate(interrupt)
+            }
+            _ => false,
+        }
     }
 }
 
@@ -409,18 +406,6 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
         let medeleg = &mut self.trap.get_mut(allocator).delegate_exception;
         let old_value = medeleg.load_le::<u32>();
         medeleg.store_le(old_value & !mask | value & mask & DELEGATABLE_EXCEPTIONS_MASK);
-        Ok(())
-    }
-
-    pub fn read_mideleg(&self, allocator: &mut A) -> CsrReadResult {
-        Ok(self.trap.get(allocator).delegate_interrupt.load_le())
-    }
-
-    /// The mideleg register is **WARL**.
-    pub fn write_mideleg(&self, allocator: &mut A, value: u32, mask: u32) -> CsrWriteResult {
-        let mideleg = &mut self.trap.get_mut(allocator).delegate_interrupt;
-        let old_value = mideleg.load_le::<u32>();
-        mideleg.store_le(old_value & !mask | value & mask & DELEGATABLE_INTERRUPTS_MASK);
         Ok(())
     }
 
@@ -590,13 +575,13 @@ fn read_cause(last_trap_cause: &Cause, cause_override: &Option<CauseCode>) -> u3
     if let Some(code) = cause_override {
         return match code {
             CauseCode::Exception(exc_code) => exc_code.map_or(0, |c| c as u32),
-            CauseCode::Interrupt(interrupt) => 0x8000_0000 | interrupt.map_or(0, |i| i.code()),
+            CauseCode::Interrupt(interrupt) => 0x8000_0000 | interrupt.map_or(0, |i| i as u32),
         };
     }
     // Otherwise, return the value dervived from the last trap's cause.
     match last_trap_cause {
         Cause::Exception(exception) => exception.map_or(0, |e| e.code() as u32),
-        Cause::Interrupt(interrupt) => 0x8000_0000 | interrupt.map_or(0, |i| i.code()),
+        Cause::Interrupt(interrupt) => 0x8000_0000 | interrupt.map_or(0, |i| i as u32),
     }
 }
 
