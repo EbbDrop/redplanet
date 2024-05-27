@@ -314,24 +314,71 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
         privilege_level: PrivilegeLevel,
     ) -> Result<u32, CsrAccessError> {
         self.check_csr_access(allocator, specifier, privilege_level)?;
+        // Ordered according to CSR Listing in the privileged spec.
         match specifier {
             //
-            // Machine info registers
+            // Unprivileged Floating-Point CSRs
             //
-            csr::MISA => Ok(Self::MISA),
+            csr::FFLAGS => todo!(),
+            csr::FRM => todo!(),
+            csr::FCSR => todo!(),
+            //
+            // Unprivileged Counter/Timers
+            //
+            csr::CYCLE => Ok(self.read_cycle(allocator)),
+            csr::TIME => Ok(self.read_mtime(allocator) as u32),
+            csr::INSTRET => Ok(self.read_instret(allocator)),
+            csr::HPMCOUNTER3..=csr::HPMCOUNTER31 => {
+                let offset = 3 + (specifier - csr::HPMCOUNTER3);
+                Ok(self.read_hpmcounter(allocator, offset as u8))
+            }
+            csr::CYCLEH => Ok(self.read_cycleh(allocator)),
+            csr::TIMEH => Ok((self.read_mtime(allocator) >> 32) as u32),
+            csr::INSTRETH => Ok(self.read_instreth(allocator)),
+            csr::HPMCOUNTER3H..=csr::HPMCOUNTER31H => {
+                let offset = 3 + (specifier - csr::HPMCOUNTER3H);
+                Ok(self.read_hpmcounterh(allocator, offset as u8))
+            }
+            //
+            // Supervisor Trap Setup
+            //
+            csr::SSTATUS => Ok(self.read_sstatus(allocator)),
+            csr::SIE => todo!(),
+            csr::STVEC => Ok(self.read_stvec(allocator)),
+            csr::SCOUNTEREN => Ok(self.read_scounteren(allocator)),
+            //
+            // Supervisor Configuration
+            //
+            csr::SENVCFG => todo!(),
+            //
+            // Supervisor Trap Handling
+            //
+            csr::SSCRATCH => Ok(self.read_sscratch(allocator)),
+            csr::SEPC => Ok(self.read_sepc(allocator)),
+            csr::SCAUSE => Ok(self.read_scause(allocator)),
+            csr::STVAL => Ok(self.read_stval(allocator)),
+            csr::SIP => todo!(),
+            //
+            // Machine Information Registers
+            //
             csr::MVENDORID => Ok(Self::MVENDORID),
             csr::MARCHID => Ok(Self::MARCHID),
             csr::MIMPID => Ok(Self::MIMPID),
-            csr::MCONFIGPTR => Ok(Self::MCONFIGPTR),
             csr::MHARTID => Ok(self.config.hart_id),
+            csr::MCONFIGPTR => Ok(Self::MCONFIGPTR),
             //
-            // Status registers
+            // Machine Trap Setup
             //
             csr::MSTATUS => Ok(self.read_mstatus(allocator)),
+            csr::MISA => Ok(Self::MISA),
+            csr::MEDELEG => Ok(self.read_medeleg(allocator)),
+            csr::MIDELEG => Ok(self.read_mideleg(allocator)),
+            csr::MIE => todo!(),
+            csr::MTVEC => Ok(self.read_mtvec(allocator)),
+            csr::MCOUNTEREN => Ok(self.read_mcounteren(allocator)),
             csr::MSTATUSH => Ok(self.read_mstatush(allocator)),
-            csr::SSTATUS => Ok(self.read_sstatus(allocator)),
             //
-            // Machine trap handling
+            // Machine Trap Handling
             //
             csr::MSCRATCH => Ok(self.read_mscratch(allocator)),
             csr::MEPC => Ok(self.read_mepc(allocator)),
@@ -341,68 +388,43 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
             csr::MTINST => Ok(self.read_mtinst(allocator)),
             csr::MTVAL2 => Ok(self.read_mtval2(allocator)),
             //
-            // supervisor trap handling
+            // Machine Configuration
             //
-            csr::SSCRATCH => Ok(self.read_sscratch(allocator)),
-            csr::SEPC => Ok(self.read_sepc(allocator)),
-            csr::SCAUSE => Ok(self.read_scause(allocator)),
-            csr::STVAL => Ok(self.read_stval(allocator)),
-            csr::SIP => todo!(),
+            csr::MENVCFG => Ok(self.read_menvcfg(allocator)),
+            csr::MENVCFGH => Ok(self.read_menvcfgh(allocator)),
+            csr::MSECCFG | csr::MSECCFGH => Err(CsrAccessError::CsrUnsupported(specifier)),
             //
-            // Counter registers
+            // Machine Memory Protection
             //
-            // cycle
-            csr::CYCLE => Ok(self.read_cycle(allocator)),
-            csr::CYCLEH => Ok(self.read_cycleh(allocator)),
+            csr::PMPCFG0..=csr::PMPCFG15 => todo!(),
+            csr::PMPADDR0..=csr::PMPADDR63 => todo!(),
+            //
+            // Machine Counters/Timers
+            //
             csr::MCYCLE => Ok(self.read_mcycle(allocator)),
-            csr::MCYCLEH => Ok(self.read_mcycleh(allocator)),
-            // instret
-            csr::INSTRET => Ok(self.read_instret(allocator)),
-            csr::INSTRETH => Ok(self.read_instreth(allocator)),
             csr::MINSTRET => Ok(self.read_minstret(allocator)),
-            csr::MINSTRETH => Ok(self.read_minstreth(allocator)),
-            // time
-            csr::TIME => Ok(self.read_mtime(allocator) as u32),
-            csr::TIMEH => Ok((self.read_mtime(allocator) >> 32) as u32),
-            // hpmcounter
-            csr::HPMCOUNTER3..=csr::HPMCOUNTER31 => {
-                let offset = 3 + (specifier - csr::HPMCOUNTER3);
-                Ok(self.read_hpmcounter(allocator, offset as u8))
-            }
-            csr::HPMCOUNTER3H..=csr::HPMCOUNTER31H => {
-                let offset = 3 + (specifier - csr::HPMCOUNTER3H);
-                Ok(self.read_hpmcounterh(allocator, offset as u8))
-            }
             csr::MHPMCOUNTER3..=csr::MHPMCOUNTER31 => {
                 let offset = 3 + (specifier - csr::MHPMCOUNTER3);
                 Ok(self.read_mhpmcounter(allocator, offset as u8))
             }
+            csr::MCYCLEH => Ok(self.read_mcycleh(allocator)),
+            csr::MINSTRETH => Ok(self.read_minstreth(allocator)),
             csr::MHPMCOUNTER3H..=csr::MHPMCOUNTER31H => {
                 let offset = 3 + (specifier - csr::MHPMCOUNTER3H);
                 Ok(self.read_mhpmcounterh(allocator, offset as u8))
             }
             //
-            // Machine counter setup
+            // Machine Counter Setup
             //
+            csr::MCOUNTINHIBIT => Ok(self.read_mcountinhibit(allocator)),
             csr::MHPMEVENT3..=csr::MHPMEVENT31 => {
                 let offset = 3 + (specifier - csr::MHPMEVENT3);
                 Ok(self.read_mhpmevent(allocator, offset as u8))
             }
-            csr::MCOUNTINHIBIT => Ok(self.read_mcountinhibit(allocator)),
             //
-            // Trap setup registers
+            // Debug/Trace Registers
             //
-            csr::MTVEC => Ok(self.read_mtvec(allocator)),
-            csr::MEDELEG => Ok(self.read_medeleg(allocator)),
-            csr::MCOUNTEREN => Ok(self.read_mcounteren(allocator)),
-            csr::STVEC => Ok(self.read_stvec(allocator)),
-            csr::SCOUNTEREN => Ok(self.read_scounteren(allocator)),
-            //
-            // Machine configuration registers
-            //
-            csr::MENVCFG => Ok(self.read_menvcfg(allocator)),
-            csr::MENVCFGH => Ok(self.read_menvcfgh(allocator)),
-            csr::MSECCFG | csr::MSECCFGH => Err(CsrAccessError::CsrUnsupported(specifier)),
+            csr::TSELECT | csr::TDATA1 | csr::TDATA2 | csr::TDATA3 | csr::MCONTEXT => todo!(),
             _ => Err(CsrAccessError::CsrUnsupported(specifier)),
         }
     }
@@ -428,26 +450,63 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
         if csr::is_read_only(specifier) {
             return Err(CsrWriteError::WriteToReadOnly);
         }
+        // Ordered according to CSR Listing in the privileged spec.
         match specifier {
             //
-            // Machine info registers
+            // Unprivileged Floating-Point CSRs
             //
-            // The machine info registers are read-only or read-only WARL in this implementation.
-            csr::MISA => {}
-            csr::MVENDORID => {}
-            csr::MARCHID => {}
-            csr::MIMPID => {}
-            csr::MCONFIGPTR => {}
-            csr::MHARTID => {}
+            csr::FFLAGS => todo!(),
+            csr::FRM => todo!(),
+            csr::FCSR => todo!(),
             //
-            // Status registers
+            // Unprivileged Counter/Timers (read-only)
+            //
+            csr::CYCLE
+            | csr::TIME
+            | csr::INSTRET
+            | csr::HPMCOUNTER3..=csr::HPMCOUNTER31
+            | csr::CYCLEH
+            | csr::TIMEH
+            | csr::INSTRETH
+            | csr::HPMCOUNTER3H..=csr::HPMCOUNTER31H => unreachable!(),
+            //
+            // Supervisor Trap Setup
+            //
+            csr::SSTATUS => self.write_sstatus(allocator, value, mask),
+            csr::SIE => todo!(),
+            csr::STVEC => self.write_stvec(allocator, value, mask),
+            csr::SCOUNTEREN => self.write_scounteren(allocator, value, mask),
+            //
+            // Supervisor Configuration
+            //
+            csr::SENVCFG => todo!(),
+            //
+            // Supervisor Trap Handling
+            //
+            csr::SSCRATCH => self.write_sscratch(allocator, value, mask),
+            csr::SEPC => self.write_sepc(allocator, value, mask),
+            csr::SCAUSE => self.write_scause(allocator, value, mask),
+            csr::STVAL => self.write_stval(allocator, value, mask),
+            csr::SIP => todo!(),
+            //
+            // Machine Information Registers (read-only)
+            //
+            csr::MVENDORID | csr::MARCHID | csr::MIMPID | csr::MHARTID | csr::MCONFIGPTR => {
+                unreachable!()
+            }
+            //
+            // Machine Trap Setup
             //
             csr::MSTATUS => self.write_mstatus(allocator, value, mask),
+            csr::MISA => {}
+            csr::MEDELEG => self.write_medeleg(allocator, value, mask),
+            csr::MIDELEG => self.write_mideleg(allocator, value, mask),
+            csr::MIE => todo!(),
+            csr::MTVEC => self.write_mtvec(allocator, value, mask),
+            csr::MCOUNTEREN => self.write_mcounteren(allocator, value, mask),
             csr::MSTATUSH => self.write_mstatush(allocator, value, mask),
-            csr::SSTATUS => self.write_sstatus(allocator, value, mask),
             //
-            //
-            // Machine trap handling
+            // Machine Trap Handling
             //
             csr::MSCRATCH => self.write_mscratch(allocator, value, mask),
             csr::MEPC => self.write_mepc(allocator, value, mask),
@@ -457,59 +516,43 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
             csr::MTINST => self.write_mtinst(allocator, value, mask),
             csr::MTVAL2 => self.write_mtval2(allocator, value, mask),
             //
-            // supervisor trap handling
+            // Machine Configuration
             //
-            csr::SSCRATCH => self.write_sscratch(allocator, value, mask),
-            csr::SEPC => self.write_sepc(allocator, value, mask),
-            csr::SCAUSE => self.write_scause(allocator, value, mask),
-            csr::STVAL => self.write_stval(allocator, value, mask),
-            csr::SIP => todo!(),
+            csr::MENVCFG => self.write_menvcfg(allocator, value, mask),
+            csr::MENVCFGH => self.write_menvcfgh(allocator, value, mask),
+            csr::MSECCFG | csr::MSECCFGH => Err(CsrAccessError::CsrUnsupported(specifier))?,
             //
-            // Counter registers
+            // Machine Memory Protection
             //
-            // Non-m-counters are read-only shadows of their m-counter counterparts.
-            csr::CYCLE
-            | csr::CYCLEH
-            | csr::INSTRET
-            | csr::INSTRETH
-            | csr::TIME
-            | csr::TIMEH
-            | csr::HPMCOUNTER3..=csr::HPMCOUNTER31
-            | csr::HPMCOUNTER3H..=csr::HPMCOUNTER31H => {}
+            csr::PMPCFG0..=csr::PMPCFG15 => todo!(),
+            csr::PMPADDR0..=csr::PMPADDR63 => todo!(),
+            //
+            // Machine Counters/Timers
+            //
             csr::MCYCLE => self.write_mcycle(allocator, value, mask),
-            csr::MCYCLEH => self.write_mcycleh(allocator, value, mask),
             csr::MINSTRET => self.write_minstret(allocator, value, mask),
-            csr::MINSTRETH => self.write_minstreth(allocator, value, mask),
             csr::MHPMCOUNTER3..=csr::MHPMCOUNTER31 => {
                 let offset = 3 + (specifier - csr::MHPMCOUNTER3);
                 self.write_mhpmcounter(allocator, offset as u8, value, mask);
             }
+            csr::MCYCLEH => self.write_mcycleh(allocator, value, mask),
+            csr::MINSTRETH => self.write_minstreth(allocator, value, mask),
             csr::MHPMCOUNTER3H..=csr::MHPMCOUNTER31H => {
                 let offset = 3 + (specifier - csr::MHPMCOUNTER3H);
                 self.write_mhpmcounterh(allocator, offset as u8, value, mask);
             }
             //
-            // Machine counter setup
+            // Machine Counter Setup
             //
+            csr::MCOUNTINHIBIT => self.write_mcountinhibit(allocator, value, mask),
             csr::MHPMEVENT3..=csr::MHPMEVENT31 => {
                 let offset = 3 + (specifier - csr::MHPMEVENT3);
                 self.write_mhpmevent(allocator, offset as u8, value, mask);
             }
-            csr::MCOUNTINHIBIT => self.write_mcountinhibit(allocator, value, mask),
             //
-            // Trap setup registers
+            // Debug/Trace Registers
             //
-            csr::MTVEC => self.write_mtvec(allocator, value, mask),
-            csr::MEDELEG => self.write_medeleg(allocator, value, mask),
-            csr::MCOUNTEREN => self.write_mcounteren(allocator, value, mask),
-            csr::STVEC => self.write_stvec(allocator, value, mask),
-            csr::SCOUNTEREN => self.write_scounteren(allocator, value, mask),
-            //
-            // Machine configuration registers
-            //
-            csr::MENVCFG => self.write_menvcfg(allocator, value, mask),
-            csr::MENVCFGH => self.write_menvcfgh(allocator, value, mask),
-            csr::MSECCFG | csr::MSECCFGH => Err(CsrAccessError::CsrUnsupported(specifier))?,
+            csr::TSELECT | csr::TDATA1 | csr::TDATA2 | csr::TDATA3 | csr::MCONTEXT => todo!(),
             _ => Err(CsrAccessError::CsrUnsupported(specifier))?,
         }
         Ok(())
