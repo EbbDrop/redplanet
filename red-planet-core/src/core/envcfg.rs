@@ -7,11 +7,12 @@ use crate::system_bus::SystemBus;
 
 use super::Core;
 
-/// Provides menvcfg and menvcfgh registers.
+/// Provides menvcfg, menvcfgh, and senvcfg registers.
 #[derive(Debug, Clone)]
 pub struct Envcfg {
     menvcfg: u32,
     menvcfgh: u32,
+    senvcfg: u32,
 }
 
 impl Default for Envcfg {
@@ -25,15 +26,24 @@ impl Envcfg {
         Self {
             menvcfg: 0x0000_0000,
             menvcfgh: 0x0000_0000,
+            senvcfg: 0x0000_0000,
         }
     }
 
-    pub fn fiom(&self) -> bool {
+    pub fn m_fiom(&self) -> bool {
         self.menvcfg.view_bits::<Lsb0>()[idx::FIOM]
     }
 
-    pub fn set_fiom(&mut self, value: bool) {
+    pub fn set_m_fiom(&mut self, value: bool) {
         self.menvcfg.view_bits_mut::<Lsb0>().set(idx::FIOM, value);
+    }
+
+    pub fn s_fiom(&self) -> bool {
+        self.senvcfg.view_bits::<Lsb0>()[idx::FIOM]
+    }
+
+    pub fn set_s_fiom(&mut self, value: bool) {
+        self.senvcfg.view_bits_mut::<Lsb0>().set(idx::FIOM, value);
     }
 
     pub fn pbmte(&self) -> bool {
@@ -80,5 +90,14 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
     pub fn write_menvcfgh(&self, allocator: &mut A, value: u32, mask: u32) {
         let menvcfgh = &mut self.envcfg.get_mut(allocator).menvcfgh;
         *menvcfgh = *menvcfgh & !mask | value & mask;
+    }
+
+    pub fn read_senvcfg(&self, allocator: &mut A) -> u32 {
+        self.envcfg.get(allocator).senvcfg
+    }
+
+    pub fn write_senvcfg(&self, allocator: &mut A, value: u32, mask: u32) {
+        let senvcfg = &mut self.envcfg.get_mut(allocator).senvcfg;
+        *senvcfg = *senvcfg & !mask | value & mask;
     }
 }

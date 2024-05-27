@@ -129,7 +129,7 @@ pub struct Core<A: Allocator, B: SystemBus<A>> {
     /// Allocated together, because they are most often all written when taking a trap, or returning
     /// from one.
     trap: Allocated<A, Trap>,
-    /// Envcfg (menvcfg, menvcfgh) registers.
+    /// Envcfg (menvcfg, menvcfgh, senvcfg) registers.
     ///
     /// Allocated separately, because these are mutated independently of other registers, and likely
     /// not used often.
@@ -349,7 +349,7 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
             //
             // Supervisor Configuration
             //
-            csr::SENVCFG => todo!(),
+            csr::SENVCFG => Ok(self.read_menvcfg(allocator)),
             //
             // Supervisor Trap Handling
             //
@@ -479,7 +479,7 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
             //
             // Supervisor Configuration
             //
-            csr::SENVCFG => todo!(),
+            csr::SENVCFG => self.write_menvcfg(allocator, value, mask),
             //
             // Supervisor Trap Handling
             //
