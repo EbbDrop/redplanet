@@ -1,41 +1,31 @@
 #![allow(unused)]
 
 use bitvec::{order::Lsb0, view::BitView};
+use space_time::allocator::Allocator;
 
+use crate::system_bus::SystemBus;
+
+use super::Core;
+
+/// Provides menvcfg and menvcfgh registers.
 #[derive(Debug, Clone)]
-pub struct Mconfig {
+pub struct Envcfg {
     menvcfg: u32,
     menvcfgh: u32,
 }
 
-impl Default for Mconfig {
+impl Default for Envcfg {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl Mconfig {
+impl Envcfg {
     pub fn new() -> Self {
         Self {
             menvcfg: 0x0000_0000,
             menvcfgh: 0x0000_0000,
         }
-    }
-
-    pub fn read_menvcfg(&self) -> u32 {
-        self.menvcfg
-    }
-
-    pub fn write_menvcfg(&mut self, value: u32, mask: u32) {
-        self.menvcfg = self.menvcfg & !mask | value & mask;
-    }
-
-    pub fn read_menvcfgh(&self) -> u32 {
-        self.menvcfgh
-    }
-
-    pub fn write_menvcfgh(&mut self, value: u32, mask: u32) {
-        self.menvcfgh = self.menvcfgh & !mask | value & mask;
     }
 
     pub fn fiom(&self) -> bool {
@@ -71,4 +61,24 @@ mod hidx {
     pub const PBMTE: usize = 30;
     // The meaning of the following fields is not yet defined in the latest spec.
     // const STCE: usize = 31;
+}
+
+impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
+    pub fn read_menvcfg(&self, allocator: &mut A) -> u32 {
+        self.envcfg.get(allocator).menvcfg
+    }
+
+    pub fn write_menvcfg(&self, allocator: &mut A, value: u32, mask: u32) {
+        let menvcfg = &mut self.envcfg.get_mut(allocator).menvcfg;
+        *menvcfg = *menvcfg & !mask | value & mask;
+    }
+
+    pub fn read_menvcfgh(&self, allocator: &mut A) -> u32 {
+        self.envcfg.get(allocator).menvcfgh
+    }
+
+    pub fn write_menvcfgh(&self, allocator: &mut A, value: u32, mask: u32) {
+        let menvcfgh = &mut self.envcfg.get_mut(allocator).menvcfgh;
+        *menvcfgh = *menvcfgh & !mask | value & mask;
+    }
 }

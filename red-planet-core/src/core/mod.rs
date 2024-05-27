@@ -3,8 +3,8 @@
 mod counter_control;
 mod counters;
 pub mod csr;
+mod envcfg;
 mod execute;
-mod mconfig;
 mod mmu;
 mod status;
 mod trap;
@@ -19,8 +19,8 @@ use crate::system_bus::SystemBus;
 use crate::{Allocated, Allocator, Endianness, PrivilegeLevel, RawPrivilegeLevel};
 use counter_control::CounterControl;
 use counters::Counters;
+use envcfg::Envcfg;
 use execute::Executor;
-use mconfig::Mconfig;
 use mmu::Mmu;
 use status::Status;
 use std::fmt::Debug;
@@ -129,7 +129,11 @@ pub struct Core<A: Allocator, B: SystemBus<A>> {
     /// Allocated together, because they are most often all written when taking a trap, or returning
     /// from one.
     trap: Allocated<A, Trap>,
-    mconfig: Allocated<A, Mconfig>,
+    /// Envcfg (menvcfg, menvcfgh) registers.
+    ///
+    /// Allocated separately, because these are mutated independently of other registers, and likely
+    /// not used often.
+    envcfg: Allocated<A, Envcfg>,
 }
 
 impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
@@ -192,7 +196,7 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
             status: Allocated::new(allocator, Status::new()),
             privilege_mode: Allocated::new(allocator, PrivilegeLevel::Machine),
             counter_control: Allocated::new(allocator, CounterControl::new()),
-            mconfig: Allocated::new(allocator, Mconfig::new()),
+            envcfg: Allocated::new(allocator, Envcfg::new()),
         }
     }
 
@@ -280,7 +284,7 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
         // Reset control registers.
         *self.counter_control.get_mut(allocator) = CounterControl::new();
         // Reset mconfig register.
-        *self.mconfig.get_mut(allocator) = Mconfig::new();
+        *self.envcfg.get_mut(allocator) = Envcfg::new();
     }
 
     /// Generate a Non-Maskable Interrupt.
@@ -396,8 +400,8 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
             //
             // Machine configuration registers
             //
-            csr::MENVCFG => Ok(self.mconfig.get(allocator).read_menvcfg()),
-            csr::MENVCFGH => Ok(self.mconfig.get(allocator).read_menvcfgh()),
+            csr::MENVCFG => Ok(self.read_menvcfg(allocator)),
+            csr::MENVCFGH => Ok(self.read_menvcfgh(allocator)),
             csr::MSECCFG | csr::MSECCFGH => Err(CsrAccessError::CsrUnsupported(specifier)),
             _ => Err(CsrAccessError::CsrUnsupported(specifier)),
         }
@@ -503,8 +507,8 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
             //
             // Machine configuration registers
             //
-            csr::MENVCFG => self.mconfig.get_mut(allocator).write_menvcfg(value, mask),
-            csr::MENVCFGH => self.mconfig.get_mut(allocator).write_menvcfgh(value, mask),
+            csr::MENVCFG => self.write_menvcfg(allocator, value, mask),
+            csr::MENVCFGH => self.write_menvcfgh(allocator, value, mask),
             csr::MSECCFG | csr::MSECCFGH => Err(CsrAccessError::CsrUnsupported(specifier))?,
             _ => Err(CsrAccessError::CsrUnsupported(specifier))?,
         }
