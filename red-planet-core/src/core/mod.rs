@@ -25,7 +25,7 @@ use mmu::Mmu;
 use status::Status;
 use std::fmt::Debug;
 use thiserror::Error;
-use trap::{Trap, TrapCause, VectorMode};
+use trap::{Cause, Trap, VectorMode};
 
 pub use csr::CsrSpecifier;
 
@@ -120,6 +120,10 @@ pub struct Core<A: Allocator, B: SystemBus<A>> {
     ///
     /// Allocated together, since most of them will be updated simultaneously.
     counters: Allocated<A, Counters>,
+    /// Trap-related registers.
+    ///
+    /// Allocated together, because they are most often all written when taking a trap, or returning
+    /// from one.
     trap: Allocated<A, Trap>,
     control: Allocated<A, Control>,
     mconfig: Allocated<A, Mconfig>,
@@ -256,25 +260,37 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
 
     /// Generate a Reset.
     pub fn reset(&self, allocator: &mut A) {
+        // Clear all x registers, reset pc to the configured reset vector.
         *self.registers.get_mut(allocator) = Registers::new(self.config.reset_vector);
-        self.trap.get_mut(allocator).mcause.set_exception(None);
+        // Set mcause to an all-zero value.
+        let trap = self.trap.get_mut(allocator);
+        trap.set_m_trap_cause(None::<Exception>);
+        // Reset all counters.
         *self.counters.get_mut(allocator) = Counters::new();
+        // Clear relevant bits in status registers.
         let status = self.status.get_mut(allocator);
         status.set_mie(false);
         status.set_mprv(false);
         status.set_mbe(false);
+        // Switch to M-mode.
         *self.privilege_mode.get_mut(allocator) = PrivilegeLevel::Machine;
+        // Reset control registers.
         *self.control.get_mut(allocator) = Control::new();
+        // Reset mconfig register.
         *self.mconfig.get_mut(allocator) = Mconfig::new();
     }
 
     /// Generate a Non-Maskable Interrupt.
     pub fn nmi(&self, allocator: &mut A) {
+        // NMIs do not reset state; they only update a few registers.
+        // Jump to configured nmi vector.
         let pc = self.registers.get_mut(allocator).pc_mut();
         let old_pc = std::mem::replace(pc, self.config.nmi_vector);
+        // Set mepc and mcause registers appropriately.
         let trap = self.trap.get_mut(allocator);
-        trap.write_mepc(old_pc, 0xFFFF_FFFF);
-        trap.mcause.set_interrupt(None);
+        trap.set_mepc(old_pc);
+        trap.set_m_trap_cause(None::<Interrupt>);
+        // Switch to M-mode.
         *self.privilege_mode.get_mut(allocator) = PrivilegeLevel::Machine;
     }
 
@@ -310,20 +326,20 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
             //
             // Machine trap handling
             //
-            csr::MSCRATCH => Ok(self.trap.get(allocator).read_mscratch()),
-            csr::MEPC => Ok(self.trap.get(allocator).read_mepc()),
-            csr::MCAUSE => Ok(self.trap.get(allocator).mcause.read()),
-            csr::MTVAL => Ok(self.trap.get(allocator).read_mtval()),
+            csr::MSCRATCH => Ok(self.read_mscratch(allocator)),
+            csr::MEPC => Ok(self.read_mepc(allocator)),
+            csr::MCAUSE => Ok(self.read_mcause(allocator)),
+            csr::MTVAL => Ok(self.read_mtval(allocator)),
             csr::MIP => todo!("must be able to write to SEIP"),
-            csr::MTINST => Ok(self.trap.get(allocator).read_mtinst()),
-            csr::MTVAL2 => Ok(self.trap.get(allocator).read_mtval2()),
+            csr::MTINST => Ok(self.read_mtinst(allocator)),
+            csr::MTVAL2 => Ok(self.read_mtval2(allocator)),
             //
             // supervisor trap handling
             //
-            csr::SSCRATCH => Ok(self.trap.get(allocator).read_sscratch()),
-            csr::SEPC => Ok(self.trap.get(allocator).read_sepc()),
-            csr::SCAUSE => Ok(self.trap.get(allocator).scause.read()),
-            csr::STVAL => Ok(self.trap.get(allocator).read_stval()),
+            csr::SSCRATCH => Ok(self.read_sscratch(allocator)),
+            csr::SEPC => Ok(self.read_sepc(allocator)),
+            csr::SCAUSE => Ok(self.read_scause(allocator)),
+            csr::STVAL => Ok(self.read_stval(allocator)),
             csr::SIP => todo!(),
             //
             // Counter registers
@@ -369,10 +385,10 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
             //
             // Trap setup registers
             //
-            csr::MTVEC => Ok(self.trap.get(allocator).mtvec.read()),
-            csr::MEDELEG => Ok(self.trap.get(allocator).medeleg.read()),
+            csr::MTVEC => Ok(self.read_mtvec(allocator)),
+            csr::MEDELEG => Ok(self.read_medeleg(allocator)),
             csr::MCOUNTEREN => Ok(self.control.get(allocator).mcounteren.read()),
-            csr::STVEC => Ok(self.trap.get(allocator).stvec.read()),
+            csr::STVEC => Ok(self.read_stvec(allocator)),
             csr::SCOUNTEREN => Ok(self.control.get(allocator).scounteren.read()),
             //
             // Machine configuration registers
@@ -423,22 +439,23 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
             csr::MSTATUSH => self.write_mstatush(allocator, value, mask),
             csr::SSTATUS => self.write_sstatus(allocator, value, mask),
             //
+            //
             // Machine trap handling
             //
-            csr::MSCRATCH => self.trap.get_mut(allocator).write_mscratch(value, mask),
-            csr::MEPC => self.trap.get_mut(allocator).write_mepc(value, mask),
-            csr::MCAUSE => self.trap.get_mut(allocator).mcause.write(value, mask),
-            csr::MTVAL => self.trap.get_mut(allocator).write_mtval(value, mask),
+            csr::MSCRATCH => self.write_mscratch(allocator, value, mask),
+            csr::MEPC => self.write_mepc(allocator, value, mask),
+            csr::MCAUSE => self.write_mcause(allocator, value, mask),
+            csr::MTVAL => self.write_mtval(allocator, value, mask),
             csr::MIP => todo!("must be able to write to SEIP"),
-            csr::MTINST => self.trap.get_mut(allocator).write_mtinst(value, mask),
-            csr::MTVAL2 => self.trap.get_mut(allocator).write_mtval2(value, mask),
+            csr::MTINST => self.write_mtinst(allocator, value, mask),
+            csr::MTVAL2 => self.write_mtval2(allocator, value, mask),
             //
             // supervisor trap handling
             //
-            csr::SSCRATCH => self.trap.get_mut(allocator).write_sscratch(value, mask),
-            csr::SEPC => self.trap.get_mut(allocator).write_sepc(value, mask),
-            csr::SCAUSE => self.trap.get_mut(allocator).scause.write(value, mask),
-            csr::STVAL => self.trap.get_mut(allocator).write_stval(value, mask),
+            csr::SSCRATCH => self.write_sscratch(allocator, value, mask),
+            csr::SEPC => self.write_sepc(allocator, value, mask),
+            csr::SCAUSE => self.write_scause(allocator, value, mask),
+            csr::STVAL => self.write_stval(allocator, value, mask),
             csr::SIP => todo!(),
             //
             // Counter registers
@@ -479,14 +496,14 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
             //
             // Trap setup registers
             //
-            csr::MTVEC => self.trap.get_mut(allocator).mtvec.write(value, mask),
-            csr::MEDELEG => self.trap.get_mut(allocator).medeleg.write(value, mask),
+            csr::MTVEC => self.write_mtvec(allocator, value, mask),
+            csr::MEDELEG => self.write_medeleg(allocator, value, mask),
             csr::MCOUNTEREN => self
                 .control
                 .get_mut(allocator)
                 .mcounteren
                 .write(value, mask),
-            csr::STVEC => self.trap.get_mut(allocator).stvec.write(value, mask),
+            csr::STVEC => self.write_stvec(allocator, value, mask),
             csr::SCOUNTEREN => self
                 .control
                 .get_mut(allocator)
@@ -793,35 +810,27 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
         address
     }
 
-    fn trap(&self, allocator: &mut A, cause: TrapCause) {
+    fn trap(&self, allocator: &mut A, cause: Cause) {
         let pc = self.registers(allocator).pc();
         let privilege_mode = *self.privilege_mode.get(allocator);
         let trap = self.trap.get_mut(allocator);
-        // Determine if we should be delegating. Note that `delegate == true` does not necessarily
-        // mean the trap will be handled in S-mode, since traps that occur while running in M-mode
-        // are always handled in M-mode. That check is performed later; see `trap_to_s_mode`.
-        let delegate = match cause {
-            TrapCause::Exception(exception) => trap.medeleg.should_delegate(exception),
-            TrapCause::Interrupt(interrupt) => trap.mideleg.should_delegate(interrupt),
-        };
         // Determine whether we are trapping into S-mode or M-mode.
-        let trap_to_s_mode = match (privilege_mode, delegate) {
-            (PrivilegeLevel::Machine, _) | (_, false) => false,
-            (_, true) => true,
-        };
-        // Set xcause register.
+        let delegate = trap.should_delegate(cause.code());
+        let trap_to_s_mode = privilege_mode != PrivilegeLevel::Machine && delegate;
+        // Set xcause and xepc register.
         match trap_to_s_mode {
-            true => trap.scause.set(&cause),
-            false => trap.mcause.set(&cause),
-        };
-        // Set xepc register.
-        match trap_to_s_mode {
-            true => trap.write_sepc(pc, 0xFFFF_FFFF),
-            false => trap.write_mepc(pc, 0xFFFF_FFFF),
+            true => {
+                trap.set_s_trap_cause(cause.clone());
+                trap.set_sepc(pc);
+            }
+            false => {
+                trap.set_m_trap_cause(cause.clone());
+                trap.set_mepc(pc);
+            }
         };
         // Write xtval and mtval2 register.
         let tval = match cause {
-            TrapCause::Exception(exception) => match exception {
+            Cause::Exception(Some(exception)) => match exception {
                 Exception::IllegalInstruction(raw_instruction) => raw_instruction.unwrap_or(0),
                 Exception::Breakpoint => pc,
                 Exception::InstructionAddressMisaligned(vaddr)
@@ -837,27 +846,26 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
                 | Exception::EnvironmentCallFromSMode
                 | Exception::EnvironmentCallFromMMode => 0,
             },
-            TrapCause::Interrupt(_) => 0,
+            _ => 0,
         };
         match trap_to_s_mode {
-            true => trap.write_stval(tval, 0xFFFF_FFFF),
+            true => trap.set_stval(tval),
             false => {
-                trap.write_mtval(tval, 0xFFFF_FFFF);
-                trap.write_mtval2(0, 0xFFFF_FFFF);
+                trap.set_mtval(tval);
+                trap.set_mtval2(0);
+                trap.set_mtinst(0);
             }
         };
         // Determine trap handler address base on xtvec register and cause type.
-        let tvec = match trap_to_s_mode {
-            true => &trap.stvec,
-            false => &trap.mtvec,
+        let (tvec_base, tvec_mode) = match trap_to_s_mode {
+            true => (trap.s_vector_base_address(), trap.s_vector_mode()),
+            false => (trap.m_vector_base_address(), trap.m_vector_mode()),
         };
-        let trap_handler_address = match (tvec.mode(), &cause) {
-            (VectorMode::Vectored, TrapCause::Interrupt(interrupt)) => {
-                tvec.base() + 4 * interrupt.code()
+        let trap_handler_address = match (tvec_mode, &cause) {
+            (VectorMode::Vectored, Cause::Interrupt(interrupt)) => {
+                tvec_base + 4 * interrupt.map_or(0, |i| i.code())
             }
-            (VectorMode::Vectored, TrapCause::Exception(_)) | (VectorMode::Direct, _) => {
-                tvec.base()
-            }
+            (VectorMode::Vectored, Cause::Exception(_)) | (VectorMode::Direct, _) => tvec_base,
         };
         // Set pc to the correct trap handler.
         *self.registers_mut(allocator).pc_mut() = trap_handler_address;
@@ -934,6 +942,66 @@ impl From<CsrAccessError> for CsrWriteError {
 /// exception occurred.
 pub type ExecutionResult<T = ()> = Result<T, Exception>;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum ExceptionCode {
+    InstructionAddressMisaligned = 0,
+    InstructionAccessFault = 1,
+    IllegalInstruction = 2,
+    Breakpoint = 3,
+    LoadAddressMisaligned = 4,
+    LoadAccessFault = 5,
+    StoreOrAmoAddressMisaligned = 6,
+    StoreOrAmoAccessFault = 7,
+    EnvironmentCallFromUMode = 8,
+    EnvironmentCallFromSMode = 9,
+    EnvironmentCallFromMMode = 11,
+    InstructionPageFault = 12,
+    LoadPageFault = 13,
+    StoreOrAmoPageFault = 15,
+}
+
+impl ExceptionCode {
+    pub const INSTRUCTION_ADDRESS_MISALIGNED: u32 = Self::InstructionAddressMisaligned as u32;
+    pub const INSTRUCTION_ACCESS_FAULT: u32 = Self::InstructionAccessFault as u32;
+    pub const ILLEGAL_INSTRUCTION: u32 = Self::IllegalInstruction as u32;
+    pub const BREAKPOINT: u32 = Self::Breakpoint as u32;
+    pub const LOAD_ADDRESS_MISALIGNED: u32 = Self::LoadAddressMisaligned as u32;
+    pub const LOAD_ACCESS_FAULT: u32 = Self::LoadAccessFault as u32;
+    pub const STORE_OR_AMO_ADDRESS_MISALIGNED: u32 = Self::StoreOrAmoAddressMisaligned as u32;
+    pub const STORE_OR_AMO_ACCESS_FAULT: u32 = Self::StoreOrAmoAccessFault as u32;
+    pub const ENVIRONMENT_CALL_FROM_U_MODE: u32 = Self::EnvironmentCallFromUMode as u32;
+    pub const ENVIRONMENT_CALL_FROM_S_MODE: u32 = Self::EnvironmentCallFromSMode as u32;
+    pub const ENVIRONMENT_CALL_FROM_M_MODE: u32 = Self::EnvironmentCallFromMMode as u32;
+    pub const INSTRUCTION_PAGE_FAULT: u32 = Self::InstructionPageFault as u32;
+    pub const LOAD_PAGE_FAULT: u32 = Self::LoadPageFault as u32;
+    pub const STORE_OR_AMO_PAGE_FAULT: u32 = Self::StoreOrAmoPageFault as u32;
+}
+
+impl TryFrom<u32> for ExceptionCode {
+    type Error = String;
+
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
+        match value {
+            Self::INSTRUCTION_ADDRESS_MISALIGNED => Ok(Self::InstructionAddressMisaligned),
+            Self::INSTRUCTION_ACCESS_FAULT => Ok(Self::InstructionAccessFault),
+            Self::ILLEGAL_INSTRUCTION => Ok(Self::IllegalInstruction),
+            Self::BREAKPOINT => Ok(Self::Breakpoint),
+            Self::LOAD_ADDRESS_MISALIGNED => Ok(Self::LoadAddressMisaligned),
+            Self::LOAD_ACCESS_FAULT => Ok(Self::LoadAccessFault),
+            Self::STORE_OR_AMO_ADDRESS_MISALIGNED => Ok(Self::StoreOrAmoAddressMisaligned),
+            Self::STORE_OR_AMO_ACCESS_FAULT => Ok(Self::StoreOrAmoAccessFault),
+            Self::ENVIRONMENT_CALL_FROM_U_MODE => Ok(Self::EnvironmentCallFromUMode),
+            Self::ENVIRONMENT_CALL_FROM_S_MODE => Ok(Self::EnvironmentCallFromSMode),
+            Self::ENVIRONMENT_CALL_FROM_M_MODE => Ok(Self::EnvironmentCallFromMMode),
+            Self::INSTRUCTION_PAGE_FAULT => Ok(Self::InstructionPageFault),
+            Self::LOAD_PAGE_FAULT => Ok(Self::LoadPageFault),
+            Self::STORE_OR_AMO_PAGE_FAULT => Ok(Self::StoreOrAmoPageFault),
+            _ => Err(format!("unsupported exception code: {value}")),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum Exception {
     /// Instruction address is not on a four-byte aligned boundary in memory.
@@ -972,38 +1040,23 @@ pub enum Exception {
 }
 
 impl Exception {
-    pub const INSTRUCTION_ADDRESS_MISALIGNED: u32 = 0;
-    pub const INSTRUCTION_ACCESS_FAULT: u32 = 1;
-    pub const ILLEGAL_INSTRUCTION: u32 = 2;
-    pub const BREAKPOINT: u32 = 3;
-    pub const LOAD_ADDRESS_MISALIGNED: u32 = 4;
-    pub const LOAD_ACCESS_FAULT: u32 = 5;
-    pub const STORE_OR_AMO_ADDRESS_MISALIGNED: u32 = 6;
-    pub const STORE_OR_AMO_ACCESS_FAULT: u32 = 7;
-    pub const ENVIRONMENT_CALL_FROM_U_MODE: u32 = 8;
-    pub const ENVIRONMENT_CALL_FROM_S_MODE: u32 = 9;
-    pub const ENVIRONMENT_CALL_FROM_M_MODE: u32 = 11;
-    pub const INSTRUCTION_PAGE_FAULT: u32 = 12;
-    pub const LOAD_PAGE_FAULT: u32 = 13;
-    pub const STORE_OR_AMO_PAGE_FAULT: u32 = 15;
-
     /// Returns the exception code (cause) for this exception.
-    pub const fn code(&self) -> u32 {
+    pub const fn code(&self) -> ExceptionCode {
         match self {
-            Self::InstructionAddressMisaligned(_) => Self::INSTRUCTION_ADDRESS_MISALIGNED,
-            Self::InstructionAccessFault(_) => Self::INSTRUCTION_ACCESS_FAULT,
-            Self::IllegalInstruction(_) => Self::ILLEGAL_INSTRUCTION,
-            Self::Breakpoint => Self::BREAKPOINT,
-            Self::LoadAddressMisaligned(_) => Self::LOAD_ADDRESS_MISALIGNED,
-            Self::LoadAccessFault(_) => Self::LOAD_ACCESS_FAULT,
-            Self::StoreOrAmoAddressMisaligned(_) => Self::STORE_OR_AMO_ADDRESS_MISALIGNED,
-            Self::StoreOrAmoAccessFault(_) => Self::STORE_OR_AMO_ACCESS_FAULT,
-            Self::EnvironmentCallFromUMode => Self::ENVIRONMENT_CALL_FROM_U_MODE,
-            Self::EnvironmentCallFromSMode => Self::ENVIRONMENT_CALL_FROM_S_MODE,
-            Self::EnvironmentCallFromMMode => Self::ENVIRONMENT_CALL_FROM_M_MODE,
-            Self::InstructionPageFault(_) => Self::INSTRUCTION_PAGE_FAULT,
-            Self::LoadPageFault(_) => Self::LOAD_PAGE_FAULT,
-            Self::StoreOrAmoPageFault(_) => Self::STORE_OR_AMO_PAGE_FAULT,
+            Self::InstructionAddressMisaligned(_) => ExceptionCode::InstructionAddressMisaligned,
+            Self::InstructionAccessFault(_) => ExceptionCode::InstructionAccessFault,
+            Self::IllegalInstruction(_) => ExceptionCode::IllegalInstruction,
+            Self::Breakpoint => ExceptionCode::Breakpoint,
+            Self::LoadAddressMisaligned(_) => ExceptionCode::LoadAddressMisaligned,
+            Self::LoadAccessFault(_) => ExceptionCode::LoadAccessFault,
+            Self::StoreOrAmoAddressMisaligned(_) => ExceptionCode::StoreOrAmoAddressMisaligned,
+            Self::StoreOrAmoAccessFault(_) => ExceptionCode::StoreOrAmoAccessFault,
+            Self::EnvironmentCallFromUMode => ExceptionCode::EnvironmentCallFromUMode,
+            Self::EnvironmentCallFromSMode => ExceptionCode::EnvironmentCallFromSMode,
+            Self::EnvironmentCallFromMMode => ExceptionCode::EnvironmentCallFromMMode,
+            Self::InstructionPageFault(_) => ExceptionCode::InstructionPageFault,
+            Self::LoadPageFault(_) => ExceptionCode::LoadPageFault,
+            Self::StoreOrAmoPageFault(_) => ExceptionCode::StoreOrAmoPageFault,
         }
     }
 }
@@ -1028,6 +1081,22 @@ impl Interrupt {
             Self::MachineTimerInterrupt => 7,
             Self::SupervisorExternalInterrupt => 9,
             Self::MachineExternalInterrupt => 11,
+        }
+    }
+}
+
+impl TryFrom<u32> for Interrupt {
+    type Error = String;
+
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
+        match value {
+            1 => Ok(Self::SupervisorSoftwareInterrupt),
+            3 => Ok(Self::MachineSoftwareInterrupt),
+            5 => Ok(Self::SupervisorTimerInterrupt),
+            7 => Ok(Self::MachineTimerInterrupt),
+            9 => Ok(Self::SupervisorExternalInterrupt),
+            11 => Ok(Self::MachineExternalInterrupt),
+            _ => Err(format!("unsupported interrupt code: {value}")),
         }
     }
 }

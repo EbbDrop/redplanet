@@ -566,7 +566,7 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
         // Set core's privilege mode to xPP.
         *self.core.privilege_mode.get_mut(self.allocator) = pp;
         // Set pc to xepc.
-        let sepc = self.core.trap.get(self.allocator).read_sepc();
+        let sepc = self.core.trap.get(self.allocator).sepc();
         *self.core.registers_mut(self.allocator).pc_mut() = sepc;
         Ok(())
     }
@@ -590,7 +590,7 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
         // Set core's privilege mode to xPP.
         *self.core.privilege_mode.get_mut(self.allocator) = pp;
         // Set pc to xepc.
-        let mepc = self.core.trap.get(self.allocator).read_mepc();
+        let mepc = self.core.trap.get(self.allocator).mepc();
         *self.core.registers_mut(self.allocator).pc_mut() = mepc;
         Ok(())
     }
