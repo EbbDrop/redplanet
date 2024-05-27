@@ -1,10 +1,11 @@
-use core::alloc;
-
 use space_time::allocator::Allocator;
 
-use crate::system_bus::SystemBus;
+use crate::{system_bus::SystemBus, PrivilegeLevel};
 
-use super::{Core, CsrReadResult, CsrWriteResult};
+use super::{
+    counter_control::Counteren, csr, Core, CsrAccessError, CsrReadResult, CsrSpecifier,
+    CsrWriteResult,
+};
 
 /// Collection of counter registers and associated read/write logic.
 ///
@@ -78,61 +79,122 @@ impl Counters {
             skip_next_minstret_increment: false,
         }
     }
-
-    pub fn increment_cycle(&mut self) {
-        if self.skip_next_mcycle_increment {
-            self.skip_next_mcycle_increment = false;
-            return;
-        }
-        self.mcycle = self.mcycle.wrapping_add(1);
-        if self.mcycle == 0 {
-            self.mcycleh = self.mcycleh.wrapping_add(1);
-        }
-    }
-
-    pub fn increment_instret(&mut self) {
-        if self.skip_next_minstret_increment {
-            self.skip_next_minstret_increment = false;
-            return;
-        }
-        self.minstret = self.minstret.wrapping_add(1);
-        if self.minstret == 0 {
-            self.minstreth = self.minstreth.wrapping_add(1);
-        }
-    }
 }
 
 impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
+    /// Increment the register(s) that keep track of the cycle count, if not inhibited by the
+    /// counter control registers.
+    pub(super) fn increment_cycle_counter(&self, allocator: &mut A) {
+        if self.counter_control.get(allocator).mcountinhibit.cy() {
+            // Cycle counter prevented from updating by mcountinhibit.
+            return;
+        }
+        let counters = self.counters.get_mut(allocator);
+        if counters.skip_next_mcycle_increment {
+            counters.skip_next_mcycle_increment = false;
+            // Cycle counter prevented from updating because guest code wrote to it this step.
+            return;
+        }
+        counters.mcycle = counters.mcycle.wrapping_add(1);
+        if counters.mcycle == 0 {
+            counters.mcycleh = counters.mcycleh.wrapping_add(1);
+        }
+    }
+
+    /// Increment the register(s) that keep track of the retired instructions count, if not
+    /// inhibited by the counter control register.
+    pub(super) fn increment_instret_counter(&self, allocator: &mut A) {
+        if self.counter_control.get(allocator).mcountinhibit.ir() {
+            // Instret counter prevented from updating by mcountinhibit.
+            return;
+        }
+        let counters = self.counters.get_mut(allocator);
+        if counters.skip_next_minstret_increment {
+            counters.skip_next_minstret_increment = false;
+            // Instret counter prevented from updating because geust code wrote to it this step.
+            return;
+        }
+        counters.minstret = counters.minstret.wrapping_add(1);
+        if counters.minstret == 0 {
+            counters.minstreth = counters.minstreth.wrapping_add(1);
+        }
+    }
+
     pub fn read_cycle(&self, allocator: &mut A) -> CsrReadResult {
+        self.check_access(allocator, |cen| cen.cy(), csr::CYCLE, "cycle counter")?;
         self.read_mcycle(allocator)
     }
 
     pub fn read_cycleh(&self, allocator: &mut A) -> CsrReadResult {
+        self.check_access(allocator, |cen| cen.cy(), csr::CYCLEH, "cycleh counter")?;
         self.read_mcycleh(allocator)
     }
 
     pub fn read_time(&self, allocator: &mut A) -> CsrReadResult {
+        self.check_access(allocator, |cen| cen.tm(), csr::TIME, "time counter")?;
         Ok(self.read_mtime(allocator) as u32)
     }
 
     pub fn read_timeh(&self, allocator: &mut A) -> CsrReadResult {
+        self.check_access(allocator, |cen| cen.tm(), csr::TIMEH, "timeh counter")?;
         Ok((self.read_mtime(allocator) >> 32) as u32)
     }
 
     pub fn read_instret(&self, allocator: &mut A) -> CsrReadResult {
+        self.check_access(allocator, |cen| cen.ir(), csr::INSTRET, "instret counter")?;
         self.read_minstret(allocator)
     }
 
     pub fn read_instreth(&self, allocator: &mut A) -> CsrReadResult {
+        self.check_access(allocator, |cen| cen.ir(), csr::INSTRETH, "instreth counter")?;
         self.read_minstreth(allocator)
     }
 
     pub fn read_hpmcounter(&self, allocator: &mut A, n: u8) -> CsrReadResult {
+        assert!((3..=31).contains(&n), "invalid hpm counter number: {n}");
+        self.check_access(
+            allocator,
+            |cen| cen.hpm(n),
+            csr::HPMCOUNTER3 + n as u16 - 3,
+            &format!("hpmcounter{n}"),
+        )?;
         self.read_mhpmcounter(allocator, n)
     }
 
     pub fn read_hpmcounterh(&self, allocator: &mut A, n: u8) -> CsrReadResult {
+        assert!((3..=31).contains(&n), "invalid hpm counter number: {n}");
+        self.check_access(
+            allocator,
+            |cen| cen.hpm(n),
+            csr::HPMCOUNTER3 + n as u16 - 3,
+            &format!("hpmcounter{n}"),
+        )?;
         self.read_mhpmcounterh(allocator, n)
+    }
+
+    fn check_access(
+        &self,
+        allocator: &A,
+        check: impl Fn(&Counteren) -> bool,
+        specifier: CsrSpecifier,
+        name: &str,
+    ) -> CsrReadResult<()> {
+        let mode = self.privilege_mode(allocator);
+        let control = self.counter_control.get(allocator);
+        use CsrAccessError::CsrUnavailable;
+        if mode < PrivilegeLevel::Supervisor && !check(&control.scounteren) {
+            Err(CsrUnavailable(
+                specifier,
+                format!("{name} access prohibited by scounteren"),
+            ))
+        } else if mode < PrivilegeLevel::Machine && !check(&control.mcounteren) {
+            Err(CsrUnavailable(
+                specifier,
+                format!("{name} access prohibited by mcounteren"),
+            ))
+        } else {
+            Ok(())
+        }
     }
 
     pub fn read_mcycle(&self, allocator: &mut A) -> CsrReadResult {
@@ -180,10 +242,8 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
     }
 
     pub fn read_mhpmcounter(&self, allocator: &mut A, n: u8) -> CsrReadResult {
+        assert!((3..=31).contains(&n), "invalid hpm counter number: {n}");
         let _ = allocator;
-        if !(3..=31).contains(&n) {
-            panic!("invalid hpm counter number: {n}");
-        }
         Ok(0)
     }
 
@@ -194,21 +254,17 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
         value: u32,
         mask: u32,
     ) -> CsrWriteResult {
-        let _ = allocator;
-        if !(3..=31).contains(&n) {
-            panic!("invalid hpm counter number: {n}");
-        }
+        assert!((3..=31).contains(&n), "invalid hpm counter number: {n}");
         // Writes are ignored
+        let _ = allocator;
         let _ = value;
         let _ = mask;
         Ok(())
     }
 
     pub fn read_mhpmcounterh(&self, allocator: &mut A, n: u8) -> CsrReadResult {
+        assert!((3..=31).contains(&n), "invalid hpm counter number: {n}");
         let _ = allocator;
-        if !(3..=31).contains(&n) {
-            panic!("invalid hpm counter number: {n}");
-        }
         Ok(0)
     }
 
@@ -219,21 +275,17 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
         value: u32,
         mask: u32,
     ) -> CsrWriteResult {
-        let _ = allocator;
-        if !(3..=31).contains(&n) {
-            panic!("invalid hpm counter number: {n}");
-        }
+        assert!((3..=31).contains(&n), "invalid hpm counter number: {n}");
         // Writes are ignored
+        let _ = allocator;
         let _ = value;
         let _ = mask;
         Ok(())
     }
 
     pub fn read_mhpmevent(&self, allocator: &mut A, n: u8) -> CsrReadResult {
+        assert!((3..=31).contains(&n), "invalid hpm event number: {n}");
         let _ = allocator;
-        if !(3..=31).contains(&n) {
-            panic!("invalid hpm event number: {n}");
-        }
         Ok(0)
     }
 
@@ -244,11 +296,9 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
         value: u32,
         mask: u32,
     ) -> CsrWriteResult {
-        let _ = allocator;
-        if !(3..=31).contains(&n) {
-            panic!("invalid hpm event number: {n}");
-        }
+        assert!((3..=31).contains(&n), "invalid hpm event number: {n}");
         // Writes are ignored
+        let _ = allocator;
         let _ = value;
         let _ = mask;
         Ok(())

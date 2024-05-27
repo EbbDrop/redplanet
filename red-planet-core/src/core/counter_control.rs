@@ -86,24 +86,12 @@ impl Counteren {
         self.0.view_bits::<Lsb0>()[Self::CY]
     }
 
-    pub fn set_cy(&mut self, value: bool) {
-        self.0.view_bits_mut::<Lsb0>().set(Self::CY, value)
-    }
-
     pub fn tm(&self) -> bool {
         self.0.view_bits::<Lsb0>()[Self::TM]
     }
 
-    pub fn set_tm(&mut self, value: bool) {
-        self.0.view_bits_mut::<Lsb0>().set(Self::TM, value)
-    }
-
     pub fn ir(&self) -> bool {
         self.0.view_bits::<Lsb0>()[Self::IR]
-    }
-
-    pub fn set_ir(&mut self, value: bool) {
-        self.0.view_bits_mut::<Lsb0>().set(Self::IR, value)
     }
 
     pub fn hpm(&self, n: u8) -> bool {
@@ -111,13 +99,6 @@ impl Counteren {
             panic!("invalid hpm counter number: {n}");
         }
         self.0.view_bits::<Lsb0>()[n as usize]
-    }
-
-    pub fn set_hpm(&mut self, n: u8, value: bool) {
-        if !(3..=31).contains(&n) {
-            panic!("invalid hpm counter number: {n}");
-        }
-        self.0.view_bits_mut::<Lsb0>().set(n as usize, value)
     }
 
     fn read(&self) -> CsrReadResult {
@@ -141,8 +122,6 @@ impl Default for Mcountinhibit {
 }
 
 impl Mcountinhibit {
-    #![allow(dead_code)] // TODO
-
     // Bit indices for the fields of the mcountinhibit register.
     // Index 1 is a read-only zero bit.
     // Indicies 3 -> 31 map to HPM3 -> HPM31.
@@ -157,30 +136,17 @@ impl Mcountinhibit {
         self.0.view_bits::<Lsb0>()[Self::CY]
     }
 
-    pub fn set_cy(&mut self, value: bool) {
-        self.0.view_bits_mut::<Lsb0>().set(Self::CY, value);
-    }
-
     pub fn ir(&self) -> bool {
         self.0.view_bits::<Lsb0>()[Self::IR]
     }
 
-    pub fn set_ir(&mut self, value: bool) {
-        self.0.view_bits_mut::<Lsb0>().set(Self::IR, value);
-    }
-
+    // TODO: Remove #[allow] once hpmcounters are no longer implemented as read-only zero.
+    #[allow(dead_code)]
     pub fn hpm(&self, n: u8) -> bool {
         if !(3..=31).contains(&n) {
             panic!("invalid hpm counter number: {n}");
         }
         self.0.view_bits::<Lsb0>()[n as usize]
-    }
-
-    pub fn set_hpm(&mut self, n: u8, value: bool) {
-        if !(3..=31).contains(&n) {
-            panic!("invalid hpm counter number: {n}");
-        }
-        self.0.view_bits_mut::<Lsb0>().set(n as usize, value)
     }
 
     fn read(&self) -> CsrReadResult {

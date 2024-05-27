@@ -624,13 +624,12 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
             .and_then(|instruction| self.execute_instruction(allocator, instruction))
             .err();
 
-        let counters = self.counters.get_mut(allocator);
-        counters.increment_cycle();
+        self.increment_cycle_counter(allocator);
         match instruction {
             // ECALL and EBREAK are not considered to retire.
             // Similarly, if the instruction fetch failed, then instret should not be incremented.
             Ok(Instruction::Ecall | Instruction::Ebreak) | Err(_) => {}
-            _ => counters.increment_instret(),
+            _ => self.increment_instret_counter(allocator),
         };
 
         if let Some(exception) = exception {
@@ -938,8 +937,8 @@ impl<A: Allocator, B: SystemBus<A>> Simulatable<A> for Core<A, B> {
     }
 }
 
-pub type CsrReadResult = Result<u32, CsrAccessError>;
-pub type CsrWriteResult = Result<(), CsrWriteError>;
+pub type CsrReadResult<T = u32> = Result<T, CsrAccessError>;
+pub type CsrWriteResult<T = ()> = Result<T, CsrWriteError>;
 
 /// Errors that can occur when attempting to access a CSR.
 #[derive(Error, Debug)]
@@ -959,8 +958,8 @@ pub enum CsrAccessError {
         /// The actual privilegel level from which the access was performed.
         actual_level: PrivilegeLevel,
     },
-    #[error("CSR unavailable: {0}")]
-    CsrUnavailable(String),
+    #[error("CSR {0:#05X} unavailable: {0}")]
+    CsrUnavailable(CsrSpecifier, String),
 }
 
 /// Errors that can occur when attempting to write to a CSR.
