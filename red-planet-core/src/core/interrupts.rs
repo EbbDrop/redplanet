@@ -2,7 +2,7 @@ use bitvec::{array::BitArray, field::BitField, order::Lsb0, view::BitView};
 use space_time::allocator::Allocator;
 
 use super::{Core, CsrReadResult, CsrWriteResult, Interrupt};
-use crate::system_bus::SystemBus;
+use crate::{system_bus::SystemBus, PrivilegeLevel};
 
 const SUPERVISOR_SOFTWARE_INTERRUPT: usize = Interrupt::SupervisorSoftwareInterrupt as usize;
 const MACHINE_SOFTWARE_INTERRUPT: usize = Interrupt::MachineSoftwareInterrupt as usize;
@@ -116,6 +116,72 @@ impl Interrupts {
     /// May be set to 1 by the PLIC, but is also settable from guest code.
     pub fn set_s_soft(&mut self) {
         self.mip.set(SUPERVISOR_SOFTWARE_INTERRUPT, true);
+    }
+
+    /// Returns `true` if there is an interrupt ready to be taken (pending and enabled).
+    ///
+    /// This can be either an interrupt to be taken in M-mode (mip & mie & !delegate),
+    /// or an interrupt to be taken in S-mode (mip & mie & delegate).
+    pub fn any_pending_enabled(&self) -> bool {
+        (self.mip & self.mie).any()
+    }
+
+    /// Returns `Some(interrupt)` if there is an interrupt ready to be taken in M-mode. If there are
+    /// multiple interrupts ready, `interrupt` will be the one with the highest priority.
+    ///
+    /// An interrupt is considered ready to be taken in M-mode if it is pending in mip, enabled by
+    /// mie, and not delegated by mideleg.
+    pub fn highest_priority_m_ready(&self) -> Option<Interrupt> {
+        let ready = self.mip & self.mie & !self.delegate;
+        [
+            Interrupt::MachineExternalInterrupt,
+            Interrupt::MachineSoftwareInterrupt,
+            Interrupt::MachineTimerInterrupt,
+            Interrupt::SupervisorExternalInterrupt,
+            Interrupt::SupervisorSoftwareInterrupt,
+            Interrupt::SupervisorTimerInterrupt,
+        ]
+        .into_iter()
+        .find(|&i| ready[i as usize])
+    }
+
+    /// Returns `Some(interrupt)` if there is an interrupt ready to be taken in S-mode. If there are
+    /// multiple interrupts ready, `interrupt` will be the one with the highest priority.
+    ///
+    /// An interrupt is considered ready to be taken in S-mode if it is pending in sip, and enabled
+    /// by sie.
+    pub fn highest_priority_s_ready(&self) -> Option<Interrupt> {
+        let ready = self.mip & self.mie & self.delegate;
+        [
+            Interrupt::SupervisorExternalInterrupt,
+            Interrupt::SupervisorSoftwareInterrupt,
+            Interrupt::SupervisorTimerInterrupt,
+        ]
+        .into_iter()
+        .find(|&i| ready[i as usize])
+    }
+}
+
+impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
+    pub(super) fn highest_priority_ready_interrupt(&self, allocator: &A) -> Option<Interrupt> {
+        let privilege_mode = self.privilege_mode(allocator);
+        let status = self.status.get(allocator);
+
+        if privilege_mode == PrivilegeLevel::Machine && !status.mie() {
+            return None;
+        }
+
+        let interrupts = self.interrupts.get(allocator);
+
+        if let interrupt @ Some(_) = interrupts.highest_priority_m_ready() {
+            return interrupt;
+        }
+
+        if privilege_mode == PrivilegeLevel::Supervisor && !status.sie() {
+            return None;
+        }
+
+        interrupts.highest_priority_s_ready()
     }
 }
 

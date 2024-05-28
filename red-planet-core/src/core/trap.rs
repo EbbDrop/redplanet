@@ -609,23 +609,6 @@ impl From<Option<Interrupt>> for CauseCode {
     }
 }
 
-// Temporary placeholder for the real mip. TODO
-#[allow(unused)]
-#[derive(Debug, Clone)]
-pub struct Mip(u16);
-
-impl Mip {
-    #![allow(unused)]
-
-    // Bit indices for the fields of the mip register.
-    const SSIP: usize = 1;
-    // const MSIP: usize = 3;
-    const STIP: usize = 5;
-    // const MTIP: usize = 7;
-    const SEIP: usize = 9;
-    // const MEIP: usize = 11;
-}
-
 fn read_tvec(base_address: u32, mode: VectorMode) -> u32 {
     assert!(base_address & 0b11 == 0);
     let mode_bits = match mode {

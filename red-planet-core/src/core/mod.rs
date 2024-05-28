@@ -611,14 +611,24 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
     }
 
     /// Fetch the next instruction at pc and execute.
+    ///
+    /// If an interrupt is ready to be taken, this will perform a trap for that interrupt, rather
+    /// than executing the next instruction. Additionally, if the executed instruction causes an
+    /// interrupt (indirectly), it will also be taken by this method.
     pub fn step(&self, allocator: &mut A) {
+        if self.check_for_interrupts(allocator) {
+            return;
+        }
         let pc = self.registers(allocator).pc();
         let raw_instruction = self.fetch_instruction(allocator, pc);
         self.step_with_raw(allocator, raw_instruction);
+        self.check_for_interrupts(allocator);
     }
 
     /// Execute a single (raw) instruction.
-    pub fn step_with_raw(&self, allocator: &mut A, raw_instruction: ExecutionResult<u32>) {
+    ///
+    /// Never checks for interrupts.
+    fn step_with_raw(&self, allocator: &mut A, raw_instruction: ExecutionResult<u32>) {
         let instruction = raw_instruction.and_then(|raw| {
             Instruction::decode(raw).map_err(|_| Exception::IllegalInstruction(Some(raw)))
         });
@@ -626,7 +636,9 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
     }
 
     /// Execute a single (decoded) instruction.
-    pub fn step_with(&self, allocator: &mut A, instruction: ExecutionResult<Instruction>) {
+    ///
+    /// Never checks for interrupts.
+    fn step_with(&self, allocator: &mut A, instruction: ExecutionResult<Instruction>) {
         let exception = instruction
             .and_then(|instruction| self.execute_instruction(allocator, instruction))
             .err();
@@ -646,11 +658,11 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
 
     /// Execute a single (raw) instruction.
     ///
-    /// This is not the same as [`Self::step_with_raw`]! This only takes care of executing the
+    /// This is not the same as [`Self::step`]! This only takes care of executing the
     /// instruction-specific operations, such as updating `x` registers, updating memory, updating
     /// the `pc` register, and depending on the instruction also updating CSRs. However, additional
     /// state updates that normally happen at a tick, such as incrementing the appropriate counters,
-    /// are not performed.
+    /// are not performed. This does also not check for interrupts that are ready.
     ///
     /// This can be useful for executing the operation defined by an instruction, without actually
     /// progressing general execution. If used for this scenario, consider first decrementing the
@@ -685,7 +697,7 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
     /// Performs the same operation as [`Self::execute_raw_instruction`], but takes an already
     /// decoded instruction.
     ///
-    /// Note that this is not the same as [`Self::step_with`]!
+    /// Note that this is not the same as [`Self::step`]!
     /// See [`Self::execute_raw_instruction`] for why.
     pub fn execute_instruction(
         &self,
@@ -854,12 +866,15 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
     }
 
     /// Checks whether any interrupts are pending and can be taken. If so, it executes the
-    /// appopriate trap logic.
-    ///
-    /// If this method is called while executing an instruction, nothing will be done.
-    #[allow(dead_code)]
-    fn check_for_interrupts(&self, _allocator: &mut A) {
-        todo!()
+    /// appopriate trap logic, and returns `true`. If not, it just returns `false`.
+    fn check_for_interrupts(&self, allocator: &mut A) -> bool {
+        match self.highest_priority_ready_interrupt(allocator) {
+            Some(interrupt) => {
+                self.trap(allocator, interrupt.into());
+                true
+            }
+            None => false,
+        }
     }
 }
 
