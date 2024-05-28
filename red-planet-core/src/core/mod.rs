@@ -209,6 +209,13 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
 
     pub fn drop(self, allocator: &mut A) {
         self.registers.drop(allocator);
+        self.privilege_mode.drop(allocator);
+        self.status.drop(allocator);
+        self.counters.drop(allocator);
+        self.counter_control.drop(allocator);
+        self.trap.drop(allocator);
+        self.interrupts.drop(allocator);
+        self.envcfg.drop(allocator);
     }
 
     /// Provide a read-only view of this core's configuration.
