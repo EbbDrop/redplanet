@@ -1,5 +1,3 @@
-#![allow(unused)]
-
 use bitvec::{order::Lsb0, view::BitView};
 use space_time::allocator::Allocator;
 
@@ -22,6 +20,8 @@ impl Default for Envcfg {
 }
 
 impl Envcfg {
+    #![allow(dead_code)]
+
     pub fn new() -> Self {
         Self {
             menvcfg: 0x0000_0000,

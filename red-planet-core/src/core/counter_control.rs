@@ -70,8 +70,6 @@ impl Default for Counteren {
 }
 
 impl Counteren {
-    #![allow(dead_code)] // TODO
-
     // Bit indices for the fields of the counter-enable register.
     // Indicies 3 -> 31 map to HPM3 -> HPM31.
     const CY: usize = 0;

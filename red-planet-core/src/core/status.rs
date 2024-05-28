@@ -1,5 +1,3 @@
-#![allow(unused)]
-
 use bitvec::{field::BitField, order::Lsb0, view::BitView};
 use space_time::allocator::Allocator;
 
@@ -134,6 +132,7 @@ impl Status {
     }
 
     /// Returns `true` if the MXR (Make eXecutable Readable) bit is set.
+    #[allow(dead_code)] // TODO: remove once method gets used.
     pub fn mxr(&self) -> bool {
         self.mstatus.view_bits::<Lsb0>()[idx::MXR]
     }
@@ -144,6 +143,7 @@ impl Status {
     }
 
     /// Returns `true` if the SUM (permit Supervisor User Memory access) bit is set.
+    #[allow(dead_code)] // TODO: remove once method gets used.
     pub fn sum(&self) -> bool {
         self.mstatus.view_bits::<Lsb0>()[idx::SUM]
     }
@@ -186,6 +186,7 @@ impl Status {
     /// Returns `true` if the TVM (Trap Virtual Memory) bit is set.
     ///
     /// The TVM field is **WARL**.
+    #[allow(dead_code)] // TODO: remove once method gets used.
     pub fn tvm(&self) -> bool {
         self.mstatus.view_bits::<Lsb0>()[idx::TVM]
     }
@@ -200,6 +201,7 @@ impl Status {
     /// Returns `true` if the TW (Timeout Wait) bit is set.
     ///
     /// The TW field is **WARL**.
+    #[allow(dead_code)] // TODO: remove once method gets used.
     pub fn tw(&self) -> bool {
         self.mstatus.view_bits::<Lsb0>()[idx::TW]
     }
@@ -214,6 +216,7 @@ impl Status {
     /// Returns `true` if the TSR (Trap SRET) bit is set.
     ///
     /// The TSR field is **WARL**.
+    #[allow(dead_code)] // TODO: remove once method gets used.
     pub fn tsr(&self) -> bool {
         self.mstatus.view_bits::<Lsb0>()[idx::TSR]
     }
@@ -269,6 +272,7 @@ impl Status {
     }
 
     /// Returns `true` if the SD (extension Status Dirty) bit is set.
+    #[allow(dead_code)] // TODO: remove once method gets used.
     pub fn sd(&self) -> bool {
         self.mstatus.view_bits::<Lsb0>()[idx::SD]
     }

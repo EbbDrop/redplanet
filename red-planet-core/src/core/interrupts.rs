@@ -55,8 +55,6 @@ impl Default for Interrupts {
 }
 
 impl Interrupts {
-    #![allow(dead_code)] // TODO: remove once methods are used.
-
     pub fn new() -> Self {
         Self {
             // TODO: Are these defaults correct?
@@ -75,6 +73,7 @@ impl Interrupts {
     /// Indicate whether there is an M-level external interrupt pending (MEIP).
     ///
     /// Controlled by the PLIC.
+    #[allow(dead_code)] // TODO: remove once method gets used.
     pub fn set_m_external(&mut self, value: bool) {
         self.mip.set(MACHINE_EXTERNAL_INTERRUPT, value);
     }
@@ -83,6 +82,7 @@ impl Interrupts {
     ///
     /// Controlled by the PLIC. Note that calling this with `false` does not mean the SEIP field
     /// will be set to `0`, since it is ORed with the (hidden) software-writable SEIP bit.
+    #[allow(dead_code)] // TODO: remove once method gets used.
     pub fn set_s_external(&mut self, value: bool) {
         self.seip_external = value;
         self.mip.set(
@@ -94,6 +94,7 @@ impl Interrupts {
     /// Indicate whether there is an M-level timer interrupt pending (MTIP).
     ///
     /// Controlled externally based on memory-mapped mtime and mtimecmp registers.
+    #[allow(dead_code)] // TODO: remove once method gets used.
     pub fn set_m_timer(&mut self, value: bool) {
         self.mip.set(MACHINE_TIMER_INTERRUPT, value);
     }
@@ -105,6 +106,7 @@ impl Interrupts {
     /// Note that it is not possible to clear this bit. That is only possible from guest code.
     ///
     /// Controlled by accesses to memory-mapped control registers.
+    #[allow(dead_code)] // TODO: remove once method gets used.
     pub fn set_m_soft(&mut self) {
         self.mip.set(MACHINE_SOFTWARE_INTERRUPT, true);
     }
@@ -114,16 +116,9 @@ impl Interrupts {
     /// Note that it is not possible to clear this bit. That is only possible from guest code.
     ///
     /// May be set to 1 by the PLIC, but is also settable from guest code.
+    #[allow(dead_code)] // TODO: remove once method gets used.
     pub fn set_s_soft(&mut self) {
         self.mip.set(SUPERVISOR_SOFTWARE_INTERRUPT, true);
-    }
-
-    /// Returns `true` if there is an interrupt ready to be taken (pending and enabled).
-    ///
-    /// This can be either an interrupt to be taken in M-mode (mip & mie & !delegate),
-    /// or an interrupt to be taken in S-mode (mip & mie & delegate).
-    pub fn any_pending_enabled(&self) -> bool {
-        (self.mip & self.mie).any()
     }
 
     /// Returns `Some(interrupt)` if there is an interrupt ready to be taken in M-mode. If there are
