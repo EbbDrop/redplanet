@@ -27,7 +27,7 @@ use mmu::Mmu;
 use status::Status;
 use std::fmt::Debug;
 use thiserror::Error;
-use trap::{Cause, Trap, VectorMode};
+use trap::Trap;
 
 pub use csr::CsrSpecifier;
 
@@ -860,86 +860,6 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
     #[allow(dead_code)]
     fn check_for_interrupts(&self, _allocator: &mut A) {
         todo!()
-    }
-
-    fn trap(&self, allocator: &mut A, cause: Cause) {
-        let pc = self.registers(allocator).pc();
-        let privilege_mode = *self.privilege_mode.get(allocator);
-        // Determine whether we are trapping into S-mode or M-mode.
-        let delegate = self.should_delegate(allocator, cause.code());
-        let trap_to_s_mode = privilege_mode != PrivilegeLevel::Machine && delegate;
-        let trap = self.trap.get_mut(allocator);
-        // Set xcause and xepc register.
-        match trap_to_s_mode {
-            true => {
-                trap.set_s_trap_cause(cause.clone());
-                trap.set_sepc(pc);
-            }
-            false => {
-                trap.set_m_trap_cause(cause.clone());
-                trap.set_mepc(pc);
-            }
-        };
-        // Write xtval and mtval2 register.
-        let tval = match cause {
-            Cause::Exception(Some(exception)) => match exception {
-                Exception::IllegalInstruction(raw_instruction) => raw_instruction.unwrap_or(0),
-                Exception::Breakpoint => pc,
-                Exception::InstructionAddressMisaligned(vaddr)
-                | Exception::InstructionAccessFault(vaddr)
-                | Exception::LoadAddressMisaligned(vaddr)
-                | Exception::StoreOrAmoAddressMisaligned(vaddr)
-                | Exception::LoadAccessFault(vaddr)
-                | Exception::StoreOrAmoAccessFault(vaddr)
-                | Exception::InstructionPageFault(vaddr)
-                | Exception::LoadPageFault(vaddr)
-                | Exception::StoreOrAmoPageFault(vaddr) => vaddr,
-                Exception::EnvironmentCallFromUMode
-                | Exception::EnvironmentCallFromSMode
-                | Exception::EnvironmentCallFromMMode => 0,
-            },
-            _ => 0,
-        };
-        match trap_to_s_mode {
-            true => trap.set_stval(tval),
-            false => {
-                trap.set_mtval(tval);
-                trap.set_mtval2(0);
-                trap.set_mtinst(0);
-            }
-        };
-        // Determine trap handler address base on xtvec register and cause type.
-        let (tvec_base, tvec_mode) = match trap_to_s_mode {
-            true => (trap.s_vector_base_address(), trap.s_vector_mode()),
-            false => (trap.m_vector_base_address(), trap.m_vector_mode()),
-        };
-        let trap_handler_address = match (tvec_mode, &cause) {
-            (VectorMode::Vectored, Cause::Interrupt(interrupt)) => {
-                tvec_base + 4 * interrupt.map_or(0, |i| i as u32)
-            }
-            (VectorMode::Vectored, Cause::Exception(_)) | (VectorMode::Direct, _) => tvec_base,
-        };
-        // Set pc to the correct trap handler.
-        *self.registers_mut(allocator).pc_mut() = trap_handler_address;
-        // Update fields of status register.
-        let status = self.status.get_mut(allocator);
-        match trap_to_s_mode {
-            true => {
-                status.set_spie(status.sie());
-                status.set_sie(false);
-                status.set_spp(privilege_mode.into());
-            }
-            false => {
-                status.set_mpie(status.mie());
-                status.set_mie(false);
-                status.set_mpp(privilege_mode.into());
-            }
-        }
-        // Update the core's privilege mode.
-        *self.privilege_mode.get_mut(allocator) = match trap_to_s_mode {
-            true => PrivilegeLevel::Supervisor,
-            false => PrivilegeLevel::Machine,
-        };
     }
 }
 
