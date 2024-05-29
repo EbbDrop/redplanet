@@ -409,6 +409,67 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
         })
     }
 
+    pub fn alr(&mut self, dest: Specifier, _src: Specifier, addr: Specifier) -> ExecutionResult {
+        trace!("Executing lr {dest}, ({addr})");
+        self.lw(dest, addr, 0)
+    }
+
+    pub fn asc(&mut self, dest: Specifier, src: Specifier, addr: Specifier) -> ExecutionResult {
+        trace!("Executing sc {dest}, {src}, ({addr})");
+        // Since only one core is supported, sc always succeeds.
+        self.core.registers_mut(self.allocator).set_x(dest, 0);
+        self.sw(src, addr, 0)
+    }
+
+    pub fn aswap(&mut self, dest: Specifier, src: Specifier, addr: Specifier) -> ExecutionResult {
+        trace!("Executing amoswap {dest}, {src}, ({addr})");
+        self.amo_op(dest, src, addr, |_, reg| reg)
+    }
+
+    pub fn aadd(&mut self, dest: Specifier, src: Specifier, addr: Specifier) -> ExecutionResult {
+        trace!("Executing amoadd {dest}, {src}, ({addr})");
+        self.amo_op(dest, src, addr, |mem, reg| mem.wrapping_add(reg))
+    }
+
+    pub fn aand(&mut self, dest: Specifier, src: Specifier, addr: Specifier) -> ExecutionResult {
+        trace!("Executing amoand {dest}, {src}, ({addr})");
+        self.amo_op(dest, src, addr, |mem, reg| mem & reg)
+    }
+
+    pub fn aor(&mut self, dest: Specifier, src: Specifier, addr: Specifier) -> ExecutionResult {
+        trace!("Executing amoor {dest}, {src}, ({addr})");
+        self.amo_op(dest, src, addr, |mem, reg| mem | reg)
+    }
+
+    pub fn axor(&mut self, dest: Specifier, src: Specifier, addr: Specifier) -> ExecutionResult {
+        trace!("Executing amoxor {dest}, {src}, ({addr})");
+        self.amo_op(dest, src, addr, |mem, reg| mem ^ reg)
+    }
+
+    pub fn amaxs(&mut self, dest: Specifier, src: Specifier, addr: Specifier) -> ExecutionResult {
+        trace!("Executing amomax {dest}, {src}, ({addr})");
+        self.amo_op(dest, src, addr, |mem, reg| {
+            (mem as i32).max(reg as i32) as u32
+        })
+    }
+
+    pub fn amins(&mut self, dest: Specifier, src: Specifier, addr: Specifier) -> ExecutionResult {
+        trace!("Executing amomin {dest}, {src}, ({addr})");
+        self.amo_op(dest, src, addr, |mem, reg| {
+            (mem as i32).min(reg as i32) as u32
+        })
+    }
+
+    pub fn amaxu(&mut self, dest: Specifier, src: Specifier, addr: Specifier) -> ExecutionResult {
+        trace!("Executing amomaxu {dest}, {src}, ({addr})");
+        self.amo_op(dest, src, addr, |mem, reg| mem.max(reg))
+    }
+
+    pub fn aminu(&mut self, dest: Specifier, src: Specifier, addr: Specifier) -> ExecutionResult {
+        trace!("Executing amominu {dest}, {src}, ({addr})");
+        self.amo_op(dest, src, addr, |mem, reg| mem.min(reg))
+    }
+
     pub fn fence(
         &mut self,
         predecessor: FenceOrderCombination,
@@ -701,6 +762,46 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
     {
         let registers = self.core.registers_mut(self.allocator);
         registers.set_x(dest, op(registers.x(src1), registers.x(src2)));
+        increment_pc(registers);
+        Ok(())
+    }
+
+    /// First argument op `op` is the value from memory, the second from `src`.
+    fn amo_op<F>(
+        &mut self,
+        dest: Specifier,
+        src: Specifier,
+        addr: Specifier,
+        op: F,
+    ) -> ExecutionResult
+    where
+        F: Fn(u32, u32) -> u32,
+    {
+        let registers = self.core.registers(self.allocator);
+        let address = registers.x(addr);
+
+        let value =
+            self.core
+                .mmu()
+                .read_word(self.allocator, address)
+                .map_err(|err| match err {
+                    MemoryError::MisalignedAccess => Exception::LoadAddressMisaligned(address),
+                    MemoryError::AccessFault => Exception::LoadAccessFault(address),
+                })?;
+        let registers = self.core.registers_mut(self.allocator);
+        registers.set_x(dest, value);
+
+        let new_value = op(value, registers.x(src));
+
+        self.core
+            .mmu()
+            .write_word(self.allocator, address, new_value)
+            .map_err(|err| match err {
+                MemoryError::MisalignedAccess => Exception::LoadAddressMisaligned(address),
+                MemoryError::AccessFault => Exception::LoadAccessFault(address),
+            })?;
+
+        let registers = self.core.registers_mut(self.allocator);
         increment_pc(registers);
         Ok(())
     }

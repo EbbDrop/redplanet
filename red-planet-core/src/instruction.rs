@@ -26,6 +26,14 @@ pub enum Instruction {
         dest: Specifier,
         immediate: i32,
     },
+    Amo {
+        op: AmoOp,
+        aq: bool,
+        rl: bool,
+        src: Specifier,
+        addr: Specifier,
+        dest: Specifier,
+    },
     Op {
         op: RegRegOp,
         dest: Specifier,
@@ -97,6 +105,21 @@ pub enum RegShiftImmOp {
     Slli,
     Srli,
     Srai,
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum AmoOp {
+    Lr,
+    Sc,
+    Swap,
+    Add,
+    Xor,
+    And,
+    Or,
+    Min,
+    Max,
+    Minu,
+    Maxu,
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -186,6 +209,17 @@ impl Instruction {
                 dest: rd(raw_instruction),
                 immediate: u_imm(raw_instruction),
             }),
+            Opcode::Amo => match amo_op(raw_instruction) {
+                Some(op) => Ok(Self::Amo {
+                    op,
+                    aq: amo_aq(raw_instruction),
+                    rl: amo_rl(raw_instruction),
+                    src: rs2(raw_instruction),
+                    addr: rs1(raw_instruction),
+                    dest: rd(raw_instruction),
+                }),
+                None => Err(DecodeError::IllegalInstruction),
+            },
             Opcode::Op => match r_funct(raw_instruction) {
                 Some(op) => Ok(Self::Op {
                     op,
@@ -349,6 +383,7 @@ fn opcode(raw_instruction: u32) -> Option<Opcode> {
         // StoreFp = 0b01_001_11,
         // custom-1
         // Amo = 0b01_011_11,
+        0b01_011_11 => Some(Opcode::Amo),
         0b01_100_11 => Some(Opcode::Op),
         0b01_101_11 => Some(Opcode::Lui),
         // OP-32
@@ -503,6 +538,34 @@ fn b_funct(raw_instruction: u32) -> Option<BranchCondition> {
     }
 }
 
+fn amo_op(raw_instruction: u32) -> Option<AmoOp> {
+    if funct3(raw_instruction) != 0b010 {
+        return None;
+    }
+    match funct7(raw_instruction) >> 2 {
+        0b00010 => Some(AmoOp::Lr),
+        0b00011 => Some(AmoOp::Sc),
+        0b00001 => Some(AmoOp::Swap),
+        0b00000 => Some(AmoOp::Add),
+        0b00100 => Some(AmoOp::Xor),
+        0b01100 => Some(AmoOp::And),
+        0b01000 => Some(AmoOp::Or),
+        0b10000 => Some(AmoOp::Min),
+        0b10100 => Some(AmoOp::Max),
+        0b11000 => Some(AmoOp::Minu),
+        0b11100 => Some(AmoOp::Maxu),
+        _ => None,
+    }
+}
+
+fn amo_rl(raw_instruction: u32) -> bool {
+    (raw_instruction >> 25) & 0b1 == 1
+}
+
+fn amo_aq(raw_instruction: u32) -> bool {
+    (raw_instruction >> 26) & 0b1 == 1
+}
+
 /// Returns the 3-bit *funct3* value for R-type, I-type, S-type, B-type instructions.
 fn funct3(raw_instruction: u32) -> u8 {
     ((raw_instruction >> 12) & 0b111) as u8
@@ -563,6 +626,7 @@ enum Opcode {
     OpImm,
     Auipc,
     Lui,
+    Amo,
     Op,
     Jal,
     Jalr,

@@ -13,7 +13,8 @@ mod trap;
 
 use crate::core::mmu::MemoryError;
 use crate::instruction::{
-    BranchCondition, CsrOp, Instruction, LoadWidth, RegImmOp, RegRegOp, RegShiftImmOp, StoreWidth,
+    AmoOp, BranchCondition, CsrOp, Instruction, LoadWidth, RegImmOp, RegRegOp, RegShiftImmOp,
+    StoreWidth,
 };
 use crate::registers::Registers;
 use crate::simulator::Simulatable;
@@ -770,6 +771,29 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
             }
             Instruction::Auipc { dest, immediate } => executor.auipc(dest, immediate),
             Instruction::Lui { dest, immediate } => executor.lui(dest, immediate),
+            Instruction::Amo {
+                op,
+                aq: _,
+                rl: _,
+                src,
+                addr,
+                dest,
+            } => {
+                let op = match op {
+                    AmoOp::Lr => Executor::alr,
+                    AmoOp::Sc => Executor::asc,
+                    AmoOp::Swap => Executor::aswap,
+                    AmoOp::Add => Executor::aadd,
+                    AmoOp::Xor => Executor::axor,
+                    AmoOp::And => Executor::aand,
+                    AmoOp::Or => Executor::aor,
+                    AmoOp::Min => Executor::amins,
+                    AmoOp::Max => Executor::amaxs,
+                    AmoOp::Minu => Executor::aminu,
+                    AmoOp::Maxu => Executor::amaxu,
+                };
+                op(&mut executor, dest, src, addr)
+            }
             Instruction::Op {
                 op,
                 dest,
