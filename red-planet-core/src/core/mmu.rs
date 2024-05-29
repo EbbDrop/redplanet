@@ -1,6 +1,7 @@
 use super::Core;
 use crate::system_bus::{AccessType, SystemBus};
 use crate::{Alignment, Allocator, Endianness, PrivilegeLevel};
+use log::{debug, trace};
 use thiserror::Error;
 
 macro_rules! access_fns {
@@ -8,6 +9,7 @@ macro_rules! access_fns {
         $(
             /// Invoke a read for the specified address.
             pub fn $read_fn(&self, allocator: &mut A, address: u32) -> Result<$u, MemoryError> {
+                trace!("Reading {} from memory at vaddr {address:#010x}", stringify!($u));
                 let privilege_level = self.core.effective_privilege_mode(allocator);
                 let mut buf = [0u8; std::mem::size_of::<$u>()];
                 self.read(&mut buf, allocator, address, privilege_level, false)?;
@@ -22,6 +24,7 @@ macro_rules! access_fns {
             /// See [`Bus::read_debug`] for the difference between this method and its non-debug
             /// counterpart.
             pub fn $read_debug_fn(&self, allocator: &A, address: u32) -> Result<$u, MemoryError> {
+                trace!("Debug reading {} from memory at vaddr {address:#010x}", stringify!($u));
                 let privilege_level = self.core.effective_privilege_mode(allocator);
                 let mut buf = [0u8; std::mem::size_of::<$u>()];
                 self.read_debug(&mut buf, allocator, address, privilege_level, false)?;
@@ -38,6 +41,7 @@ macro_rules! access_fns {
                 address: u32,
                 value: $u,
             ) -> Result<(), MemoryError> {
+                trace!(value; "Writing {} to memory at vaddr {address:#010x}", stringify!($u));
                 let privilege_level = self.core.effective_privilege_mode(allocator);
                 let buf = match self.core.endianness(allocator, privilege_level) {
                     Endianness::LE => value.to_le_bytes(),
@@ -64,6 +68,7 @@ pub struct Mmu<'c, A: Allocator, B: SystemBus<A>> {
 
 impl<'c, A: Allocator, B: SystemBus<A>> Mmu<'c, A, B> {
     pub fn read_byte(&self, allocator: &mut A, address: u32) -> Result<u8, MemoryError> {
+        trace!("Reading byte from memory at vaddr {address:#010x}");
         let privilege_level = self.core.effective_privilege_mode(allocator);
         let mut buf = [0];
         self.read(&mut buf, allocator, address, privilege_level, false)
@@ -71,6 +76,7 @@ impl<'c, A: Allocator, B: SystemBus<A>> Mmu<'c, A, B> {
     }
 
     pub fn read_byte_debug(&self, allocator: &A, address: u32) -> Result<u8, MemoryError> {
+        trace!("Debug reading byte from memory at vaddr {address:#010x}");
         let privilege_level = self.core.effective_privilege_mode(allocator);
         let mut buf = [0];
         self.read_debug(&mut buf, allocator, address, privilege_level, false)
@@ -83,6 +89,7 @@ impl<'c, A: Allocator, B: SystemBus<A>> Mmu<'c, A, B> {
         address: u32,
         value: u8,
     ) -> Result<(), MemoryError> {
+        trace!(value; "Writing byte to memory at vaddr {address:#010x}");
         let privilege_level = self.core.effective_privilege_mode(allocator);
         self.write(allocator, address, &[value], privilege_level)
     }
@@ -104,7 +111,9 @@ impl<'c, A: Allocator, B: SystemBus<A>> Mmu<'c, A, B> {
     /// > increasing halfword addresses, with the lowest-addressed parcel holding the
     /// > lowest-numbered bits in the instruction specification.
     pub fn fetch_instruction(&self, allocator: &mut A, address: u32) -> Result<u32, MemoryError> {
+        trace!("Fetching instruction from memory at vaddr {address:#010x}");
         if !Alignment::WORD.is_aligned(address) {
+            debug!("Failed to fetch instruction: address misaligned: {address:#010x}");
             return Err(MemoryError::MisalignedAccess);
         }
         // Use the core's current privilege level, not its *effective* privilege level, since that
@@ -181,6 +190,11 @@ impl<'c, A: Allocator, B: SystemBus<A>> Mmu<'c, A, B> {
                 // If `size` is not a power of two, then the access is always considered unaligned
                 .unwrap_or(false)
         {
+            debug!(
+                address, size, access_type:%, privilege_level:%,
+                core_supports_misaligned_accesses=self.core.config.support_misaligned_memory_access;
+                "Memory access misaligned"
+            );
             return Err(MemoryError::MisalignedAccess);
         }
 
@@ -196,6 +210,10 @@ impl<'c, A: Allocator, B: SystemBus<A>> Mmu<'c, A, B> {
         {
             Ok(physical_address)
         } else {
+            debug!(
+                address, size, access_type:%, privilege_level:%;
+                "Memory access not accepted by system bus"
+            );
             Err(MemoryError::AccessFault)
         }
     }

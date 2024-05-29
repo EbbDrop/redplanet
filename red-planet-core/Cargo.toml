@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 bitvec = "1.0.1"
+log = { version = "0.4.21", features = ["kv"] }
 space-time = { path = "../space-time" }
 static_assertions = "1.1.0"
 thiserror = "1.0.59"

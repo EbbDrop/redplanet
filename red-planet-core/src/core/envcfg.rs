@@ -1,4 +1,5 @@
 use bitvec::{order::Lsb0, view::BitView};
+use log::trace;
 use space_time::allocator::Allocator;
 
 use crate::system_bus::SystemBus;
@@ -35,6 +36,7 @@ impl Envcfg {
     }
 
     pub fn set_m_fiom(&mut self, value: bool) {
+        trace!("Setting menvcfg FIOM to {value}");
         self.menvcfg.view_bits_mut::<Lsb0>().set(idx::FIOM, value);
     }
 
@@ -43,6 +45,7 @@ impl Envcfg {
     }
 
     pub fn set_s_fiom(&mut self, value: bool) {
+        trace!("Setting senvcfg FIOM to {value}");
         self.senvcfg.view_bits_mut::<Lsb0>().set(idx::FIOM, value);
     }
 
@@ -51,6 +54,7 @@ impl Envcfg {
     }
 
     pub fn set_pbmte(&mut self, value: bool) {
+        trace!("Setting menvcfgh PBMTE to {value}");
         self.menvcfgh
             .view_bits_mut::<Lsb0>()
             .set(hidx::PBMTE, value);

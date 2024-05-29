@@ -1,4 +1,5 @@
 use crate::Allocator;
+use log::trace;
 use space_time::allocator::{ArrayAccessor, ArrayAccessorMut};
 use space_time::errors::InvalidIdError;
 use space_time::{SnapshotId, SpaceTime};
@@ -159,6 +160,7 @@ impl<S: Simulatable<SimulationAllocator>> Simulator<S> {
     /// perform side effects, execute instructions, etc.), then you should use
     /// [`step_with`](Self::step_with).
     pub fn inspect(&self) -> (&SimulationAllocator, &S) {
+        trace!("Inspecting simulatable");
         (&self.allocator, &self.simulatable)
     }
 
@@ -200,6 +202,8 @@ impl<S: Simulatable<SimulationAllocator>> Simulator<S> {
     where
         F: 'static + Fn(&mut SimulationAllocator, &S) -> R,
     {
+        trace!("Stepping simulator once with custom step \"{name}\"");
+
         if self.is_head_detached() {
             self.clear_forward_history();
         }
@@ -230,10 +234,14 @@ impl<S: Simulatable<SimulationAllocator>> Simulator<S> {
     /// This will erase the forward history, i.e. all future undone steps can no longer be redone
     /// hereafter.
     pub fn step(&mut self) {
+        trace!("Stepping simulator once");
+
         if self.is_head_detached() {
+            trace!("Simulator HEAD is detached");
             self.clear_forward_history();
         }
 
+        trace!("Ticking the simulatable");
         self.simulatable.tick(&mut self.allocator);
 
         self.head.state_index = self.head.state_index.next();
@@ -246,10 +254,13 @@ impl<S: Simulatable<SimulationAllocator>> Simulator<S> {
     /// Replay a previously undone step. Assumes such a step exists, and ignores any snapshots that
     /// may have been made.
     fn replay_step(&mut self) {
+        trace!("Replaying previously undone step in simulator");
+
         let step_index = self.head.state_index.next_step();
 
         match self.custom_ticks.get(self.head.next_custom_tick_index) {
             Some((s, custom_tick)) if *s == step_index => {
+                trace!("Step to replay used custom tick \"{}\"", &custom_tick.name);
                 (custom_tick.tick)(&mut self.allocator, &self.simulatable);
             }
             _ => self.simulatable.tick(&mut self.allocator),
@@ -262,9 +273,15 @@ impl<S: Simulatable<SimulationAllocator>> Simulator<S> {
     pub fn undo_step(&mut self) -> bool {
         // Determine target state
         let target_state_index = match self.head.state_index.previous() {
-            None => return false, // Cannot undo when at the start of history
+            None => {
+                // Cannot undo when at the start of history
+                trace!("Undoing step in simulator while at the start of history; doing nothing");
+                return false;
+            }
             Some(state_index) => state_index,
         };
+
+        trace!("Undoing step in simulator");
 
         // If the current state is the newest AND dirty, then we need to save it, so it can be
         // restored later when redoing.
@@ -281,8 +298,11 @@ impl<S: Simulatable<SimulationAllocator>> Simulator<S> {
     pub fn redo_step(&mut self) -> bool {
         if !self.is_head_detached() {
             // Cannot redo when nothing has been undone
+            trace!("Redoing step in simulator while at the end of history; doing nothing");
             return false;
         }
+
+        trace!("Redoing step in simulator");
 
         self.go_to_state(self.head.state_index.next());
 
@@ -291,6 +311,7 @@ impl<S: Simulatable<SimulationAllocator>> Simulator<S> {
 
     /// Heuristic to determine if we should take a snapshot already.
     fn should_create_snapshot(&self) -> bool {
+        trace!("Checking whether to create snapshot");
         // TODO: make a better heuristic
         self.steps_since_last_snapshot() > 2048
     }
@@ -305,6 +326,7 @@ impl<S: Simulatable<SimulationAllocator>> Simulator<S> {
 
     /// Makes a new snapshot of the current state, updating `self.snapshots` and HEAD.
     fn make_snapshot(&mut self) {
+        trace!("Making snapshot of simulator state");
         let snapshot_id = self.allocator.0.make_snapshot();
         self.head.base_snapshot_index = self.snapshots.len();
         // It is important that `self.head.base_snapshot_index` has been updated before `self.head`
@@ -343,6 +365,8 @@ impl<S: Simulatable<SimulationAllocator>> Simulator<S> {
 
     /// Discard the current state and revert to the state at `target_state_index`.
     fn go_to_state(&mut self, target_state_index: StateIndex) {
+        trace!("Reverting to state {target_state_index:?}");
+
         // Determine the last snapshot still before the target state
         let target_base_snapshot_index = self.find_base_snapshot(target_state_index);
 
@@ -367,6 +391,8 @@ impl<S: Simulatable<SimulationAllocator>> Simulator<S> {
 
     /// Discard the current state and revert to the snapshot at `self.snapshots[snapshot_index]`.
     fn go_to_snapshot(&mut self, snapshot_index: usize) {
+        trace!("Reverting to snapshot with index {snapshot_index}");
+
         let (Head { state_index, .. }, snapshot_id) = self.snapshots[snapshot_index];
 
         // Compute new indices in `custom_ticks`
@@ -382,6 +408,7 @@ impl<S: Simulatable<SimulationAllocator>> Simulator<S> {
     }
 
     fn clear_forward_history(&mut self) {
+        trace!("Clearing forward history of simulator");
         for (_, snapshot_id) in self.snapshots.drain((self.head.base_snapshot_index + 1)..) {
             self.allocator.0.drop_snapshot(snapshot_id).unwrap();
         }

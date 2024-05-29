@@ -12,6 +12,7 @@ use crate::resources::uart::Uart;
 use crate::simulator::Simulatable;
 use crate::system_bus::AccessType;
 use crate::{two_way_addr_map, Allocated, Allocator, Endianness};
+use log::{debug, trace};
 use std::ops::Deref;
 use std::rc::Rc;
 use system_bus::{Resource, SystemBus};
@@ -53,6 +54,8 @@ pub struct Board<A: Allocator> {
 
 impl<A: Allocator> Board<A> {
     pub fn new(allocator: &mut A, config: Config) -> Self {
+        debug!("Creating board with config {config:?}");
+
         let memory_map = two_way_addr_map! {
             [0x0000_1000, 0x0000_FFFF] <=> Resource::Mrom,
             [0x0010_0000, 0x0010_0003] <=> Resource::PowerDown,
@@ -209,6 +212,10 @@ impl<A: Allocator> Board<A> {
                     const_assert!(usize::BITS >= 32);
                     let slice_start = (address - base_address) as usize;
                     let slice_end = ((range.end() - base_address) as usize).min(buf.len() - 1);
+                    debug!(
+                        "Writing buf[{slice_start:#0x}..={slice_end:#0x}] to DRAM at \
+                         {address:#010x} through system bus"
+                    );
                     let slice = &buf[slice_start..=slice_end];
                     self.system_bus.write(allocator, address, slice);
                 }
@@ -227,8 +234,10 @@ impl<A: Allocator> Board<A> {
     /// Step the single core of this board once, if the board is not powered down.
     pub fn step(&self, allocator: &mut A) {
         if self.is_powered_down(allocator) {
+            trace!("Not stepping board as it is powered down");
             return;
         }
+        trace!("Stepping board");
         self.core.step(allocator);
         self.system_bus.clint.step(allocator);
     }
@@ -298,6 +307,7 @@ impl<A: Allocator> Bus<A> for PowerDown<A> {
         let _ = address;
         // If the lower 2 bytes are both 0x55, then we will power down.
         if let Some(&[0x55, 0x55]) = buf.get(..2) {
+            debug!("Powering down board because 0x5555 was written");
             self.power_down(allocator);
         }
     }

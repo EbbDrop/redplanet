@@ -1,3 +1,5 @@
+use log::trace;
+
 use super::mmu::MemoryError;
 use crate::core::{Core, CsrSpecifier, Exception, ExecutionResult};
 use crate::instruction::{CsrOp, FenceOrderCombination};
@@ -20,6 +22,7 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
     /// > ignored and the result is simply the low XLEN bits of the result. ADDI rd, rs1, 0 is used
     /// > to implement the MV rd, rs1 assembler pseudoinstruction.
     pub fn addi(&mut self, dest: Specifier, src: Specifier, immediate: i32) -> ExecutionResult {
+        trace!("Executing addi {dest} {src} {immediate}");
         self.reg_imm_op(dest, src, immediate, |s, imm| s.wrapping_add_signed(imm))
     }
 
@@ -31,6 +34,7 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
     /// > than the sign-extended immediate when both are treated as signed numbers, else 0 is
     /// > written to rd.
     pub fn slti(&mut self, dest: Specifier, src: Specifier, immediate: i32) -> ExecutionResult {
+        trace!("Executing slti {dest} {src} {immediate}");
         self.reg_imm_op(dest, src, immediate, |s, imm| ((s as i32) < imm) as u32)
     }
 
@@ -45,6 +49,7 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
     /// > SLTIU rd, rs1, 1 sets rd to 1 if rs1 equals zero, otherwise sets rd to 0 (assembler
     /// > pseudoinstruction SEQZ rd, rs).
     pub fn sltiu(&mut self, dest: Specifier, src: Specifier, immediate: i32) -> ExecutionResult {
+        trace!("Executing sltiu {dest} {src} {immediate}");
         self.reg_imm_op(dest, src, immediate, |s, imm| (s < (imm as u32)) as u32)
     }
 
@@ -55,6 +60,7 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
     /// > ANDI, ORI, XORI are logical operations that perform bitwise AND, OR, and XOR on register
     /// > rs1 and the sign-extended 12-bit immediate and place the result in rd.
     pub fn andi(&mut self, dest: Specifier, src: Specifier, immediate: i32) -> ExecutionResult {
+        trace!("Executing andi {dest} {src} {immediate}");
         self.reg_imm_op(dest, src, immediate, |s, imm| s & (imm as u32))
     }
 
@@ -65,6 +71,7 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
     /// > ANDI, ORI, XORI are logical operations that perform bitwise AND, OR, and XOR on register
     /// > rs1 and the sign-extended 12-bit immediate and place the result in rd.
     pub fn ori(&mut self, dest: Specifier, src: Specifier, immediate: i32) -> ExecutionResult {
+        trace!("Executing ori {dest} {src} {immediate}");
         self.reg_imm_op(dest, src, immediate, |s, imm| s | (imm as u32))
     }
 
@@ -77,6 +84,7 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
     /// > -1 performs a bitwise logical inversion of register rs1 (assembler pseudoinstruction NOT
     /// > rd, rs).
     pub fn xori(&mut self, dest: Specifier, src: Specifier, immediate: i32) -> ExecutionResult {
+        trace!("Executing xori {dest} {src} {immediate}");
         self.reg_imm_op(dest, src, immediate, |s, imm| s ^ (imm as u32))
     }
 
@@ -95,6 +103,7 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
         src: Specifier,
         shift_amount_u5: u32,
     ) -> ExecutionResult {
+        trace!("Executing slli {dest} {src} {shift_amount_u5}");
         self.reg_shamt_op(dest, src, shift_amount_u5, |s, shamt| s << shamt)
     }
 
@@ -113,6 +122,7 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
         src: Specifier,
         shift_amount_u5: u32,
     ) -> ExecutionResult {
+        trace!("Executing srli {dest} {src} {shift_amount_u5}");
         self.reg_shamt_op(dest, src, shift_amount_u5, |s, shamt| s >> shamt)
     }
 
@@ -132,6 +142,7 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
         src: Specifier,
         shift_amount_u5: u32,
     ) -> ExecutionResult {
+        trace!("Executing srai {dest} {src} {shift_amount_u5}");
         self.reg_shamt_op(dest, src, shift_amount_u5, |s, shamt| {
             ((s as i32) >> shamt) as u32
         })
@@ -147,6 +158,7 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
     ///
     /// Note that the bottom 12 bits of `immediate` need not be zero, they will always be discarded.
     pub fn lui(&mut self, dest: Specifier, immediate: i32) -> ExecutionResult {
+        trace!("Executing lui {dest} {immediate}");
         let result = immediate as u32 & !0xFFF;
         let registers = self.core.registers_mut(self.allocator);
         registers.set_x(dest, result);
@@ -165,6 +177,7 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
     ///
     /// Note that the bottom 12 bits of `immediate` need not be zero, this will take care of that.
     pub fn auipc(&mut self, dest: Specifier, immediate: i32) -> ExecutionResult {
+        trace!("Executing auipc {dest} {immediate}");
         let registers = self.core.registers_mut(self.allocator);
         let result = registers.pc().wrapping_add_signed(immediate & !0xFFF);
         registers.set_x(dest, result);
@@ -178,6 +191,7 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
     ///
     /// > ADD performs the addition of rs1 and rs2.
     pub fn add(&mut self, dest: Specifier, src1: Specifier, src2: Specifier) -> ExecutionResult {
+        trace!("Executing add {dest} {src1} {src2}");
         self.reg_reg_op(dest, src1, src2, |s1, s2| s1.wrapping_add(s2))
     }
 
@@ -187,6 +201,7 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
     ///
     /// > SUB performs the subtraction of rs2 from rs1.
     pub fn sub(&mut self, dest: Specifier, src1: Specifier, src2: Specifier) -> ExecutionResult {
+        trace!("Executing sub {dest} {src1} {src2}");
         self.reg_reg_op(dest, src1, src2, |s1, s2| s1.wrapping_sub(s2))
     }
 
@@ -197,6 +212,7 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
     /// > SLT and SLTU perform signed and unsigned compares respectively, writing 1 to rd if
     /// > rs1 < rs2, 0 otherwise.
     pub fn slt(&mut self, dest: Specifier, src1: Specifier, src2: Specifier) -> ExecutionResult {
+        trace!("Executing slt {dest} {src1} {src2}");
         self.reg_reg_op(dest, src1, src2, |s1, s2| {
             ((s1 as i32) < (s2 as i32)) as u32
         })
@@ -210,6 +226,7 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
     /// > rs1 < rs2, 0 otherwise. Note, SLTU rd, x0, rs2 sets rd to 1 if rs2 is not equal to zero,
     /// > otherwise sets rd to zero (assembler pseudoinstruction SNEZ rd, rs).
     pub fn sltu(&mut self, dest: Specifier, src1: Specifier, src2: Specifier) -> ExecutionResult {
+        trace!("Executing sltu {dest} {src1} {src2}");
         self.reg_reg_op(dest, src1, src2, |s1, s2| (s1 < s2) as u32)
     }
 
@@ -219,6 +236,7 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
     ///
     /// > AND, OR, and XOR perform bitwise logical operations.
     pub fn and(&mut self, dest: Specifier, src1: Specifier, src2: Specifier) -> ExecutionResult {
+        trace!("Executing and {dest} {src1} {src2}");
         self.reg_reg_op(dest, src1, src2, |s1, s2| s1 & s2)
     }
 
@@ -228,6 +246,7 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
     ///
     /// > AND, OR, and XOR perform bitwise logical operations.
     pub fn or(&mut self, dest: Specifier, src1: Specifier, src2: Specifier) -> ExecutionResult {
+        trace!("Executing or {dest} {src1} {src2}");
         self.reg_reg_op(dest, src1, src2, |s1, s2| s1 | s2)
     }
 
@@ -237,6 +256,7 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
     ///
     /// > AND, OR, and XOR perform bitwise logical operations.
     pub fn xor(&mut self, dest: Specifier, src1: Specifier, src2: Specifier) -> ExecutionResult {
+        trace!("Executing xor {dest} {src1} {src2}");
         self.reg_reg_op(dest, src1, src2, |s1, s2| s1 ^ s2)
     }
 
@@ -247,6 +267,7 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
     /// > SLL, SRL, and SRA perform logical left, logical right, and arithmetic right shifts on the
     /// > value in register rs1 by the shift amount held in the lower 5 bits of register rs2.
     pub fn sll(&mut self, dest: Specifier, src1: Specifier, src2: Specifier) -> ExecutionResult {
+        trace!("Executing sll {dest} {src1} {src2}");
         self.reg_reg_op(dest, src1, src2, |s1, s2| s1 << (s2 & 0x1F))
     }
 
@@ -257,6 +278,7 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
     /// > SLL, SRL, and SRA perform logical left, logical right, and arithmetic right shifts on the
     /// > value in register rs1 by the shift amount held in the lower 5 bits of register rs2.
     pub fn srl(&mut self, dest: Specifier, src1: Specifier, src2: Specifier) -> ExecutionResult {
+        trace!("Executing srl {dest} {src1} {src2}");
         self.reg_reg_op(dest, src1, src2, |s1, s2| s1 >> (s2 & 0x1F))
     }
 
@@ -267,46 +289,56 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
     /// > SLL, SRL, and SRA perform logical left, logical right, and arithmetic right shifts on the
     /// > value in register rs1 by the shift amount held in the lower 5 bits of register rs2.
     pub fn sra(&mut self, dest: Specifier, src1: Specifier, src2: Specifier) -> ExecutionResult {
+        trace!("Executing sra {dest} {src1} {src2}");
         self.reg_reg_op(dest, src1, src2, |s1, s2| {
             ((s1 as i32) >> (s2 & 0x1F)) as u32
         })
     }
 
     pub fn jal(&mut self, dest: Specifier, offset: i32) -> ExecutionResult {
+        trace!("Executing jal {dest} {offset}");
         self.jump_op(dest, |registers| registers.pc().wrapping_add_signed(offset))
     }
 
     pub fn jalr(&mut self, dest: Specifier, base: Specifier, offset: i32) -> ExecutionResult {
+        trace!("Executing jalr {dest} {base} {offset}");
         self.jump_op(dest, |registers| {
             registers.x(base).wrapping_add_signed(offset) & !1
         })
     }
 
     pub fn beq(&mut self, src1: Specifier, src2: Specifier, offset: i32) -> ExecutionResult {
+        trace!("Executing beq {src1} {src2} {offset}");
         self.cond_branch(src1, src2, offset, |s1, s2| s1 == s2)
     }
 
     pub fn bne(&mut self, src1: Specifier, src2: Specifier, offset: i32) -> ExecutionResult {
+        trace!("Executing bne {src1} {src2} {offset}");
         self.cond_branch(src1, src2, offset, |s1, s2| s1 != s2)
     }
 
     pub fn blt(&mut self, src1: Specifier, src2: Specifier, offset: i32) -> ExecutionResult {
+        trace!("Executing blt {src1} {src2} {offset}");
         self.cond_branch(src1, src2, offset, |s1, s2| (s1 as i32) < (s2 as i32))
     }
 
     pub fn bltu(&mut self, src1: Specifier, src2: Specifier, offset: i32) -> ExecutionResult {
+        trace!("Executing bltu {src1} {src2} {offset}");
         self.cond_branch(src1, src2, offset, |s1, s2| s1 < s2)
     }
 
     pub fn bge(&mut self, src1: Specifier, src2: Specifier, offset: i32) -> ExecutionResult {
+        trace!("Executing bge {src1} {src2} {offset}");
         self.cond_branch(src1, src2, offset, |s1, s2| (s1 as i32) >= (s2 as i32))
     }
 
     pub fn bgeu(&mut self, src1: Specifier, src2: Specifier, offset: i32) -> ExecutionResult {
+        trace!("Executing bgeu {src1} {src2} {offset}");
         self.cond_branch(src1, src2, offset, |s1, s2| s1 >= s2)
     }
 
     pub fn lb(&mut self, dest: Specifier, base: Specifier, offset: i32) -> ExecutionResult {
+        trace!("Executing lb {dest} {offset}({base})");
         self.load_op(dest, base, offset, |this, address| {
             this.core
                 .mmu()
@@ -316,6 +348,7 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
     }
 
     pub fn lbu(&mut self, dest: Specifier, base: Specifier, offset: i32) -> ExecutionResult {
+        trace!("Executing lbu {dest} {offset}({base})");
         self.load_op(dest, base, offset, |this, address| {
             this.core
                 .mmu()
@@ -325,6 +358,7 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
     }
 
     pub fn lh(&mut self, dest: Specifier, base: Specifier, offset: i32) -> ExecutionResult {
+        trace!("Executing lh {dest} {offset}({base})");
         self.load_op(dest, base, offset, |this, address| {
             this.core
                 .mmu()
@@ -334,6 +368,7 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
     }
 
     pub fn lhu(&mut self, dest: Specifier, base: Specifier, offset: i32) -> ExecutionResult {
+        trace!("Executing lhu {dest} {offset}({base})");
         self.load_op(dest, base, offset, |this, address| {
             this.core
                 .mmu()
@@ -343,12 +378,14 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
     }
 
     pub fn lw(&mut self, dest: Specifier, base: Specifier, offset: i32) -> ExecutionResult {
+        trace!("Executing lw {dest} {offset}({base})");
         self.load_op(dest, base, offset, |this, address| {
             this.core.mmu().read_word(this.allocator, address)
         })
     }
 
     pub fn sb(&mut self, src: Specifier, base: Specifier, offset: i32) -> ExecutionResult {
+        trace!("Executing sb {src} {offset}({base})");
         self.store_op(src, base, offset, |this, address, value| {
             this.core
                 .mmu()
@@ -357,6 +394,7 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
     }
 
     pub fn sh(&mut self, src: Specifier, base: Specifier, offset: i32) -> ExecutionResult {
+        trace!("Executing sh {src} {offset}({base})");
         self.store_op(src, base, offset, |this, address, value| {
             this.core
                 .mmu()
@@ -365,6 +403,7 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
     }
 
     pub fn sw(&mut self, src: Specifier, base: Specifier, offset: i32) -> ExecutionResult {
+        trace!("Executing sw {src} {offset}({base})");
         self.store_op(src, base, offset, |this, address, value| {
             this.core.mmu().write_word(this.allocator, address, value)
         })
@@ -375,6 +414,7 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
         predecessor: FenceOrderCombination,
         successor: FenceOrderCombination,
     ) -> ExecutionResult {
+        trace!(predecessor:?, successor:?; "Executing fence");
         // Since only one core is supported, this is equivalent to a nop instruction.
         let _ = predecessor;
         let _ = successor;
@@ -383,6 +423,7 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
     }
 
     pub fn ecall(&mut self) -> ExecutionResult {
+        trace!("Executing ecall");
         match self.core.privilege_mode(self.allocator) {
             PrivilegeLevel::User => Err(Exception::EnvironmentCallFromUMode),
             PrivilegeLevel::Supervisor => Err(Exception::EnvironmentCallFromSMode),
@@ -391,6 +432,7 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
     }
 
     pub fn ebreak(&mut self) -> ExecutionResult {
+        trace!("Executing ebreak");
         Err(Exception::Breakpoint)
     }
 
@@ -411,6 +453,7 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
     /// > raise illegal instruction exceptions. A read/write register might also contain some bits
     /// > that are read-only, in which case writes to the read-only bits are ignored.
     pub fn csrrw(&mut self, dest: Specifier, csr: CsrSpecifier, src: Specifier) -> ExecutionResult {
+        trace!("Executing csrrw {dest} {csr} {src}");
         self.csr_reg_op(CsrOp::ReadWrite, dest, csr, src)
     }
 
@@ -438,6 +481,7 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
     /// > raise illegal instruction exceptions. A read/write register might also contain some bits
     /// > that are read-only, in which case writes to the read-only bits are ignored.
     pub fn csrrs(&mut self, dest: Specifier, csr: CsrSpecifier, src: Specifier) -> ExecutionResult {
+        trace!("Executing csrrs {dest} {csr} {src}");
         self.csr_reg_op(CsrOp::ReadSet, dest, csr, src)
     }
 
@@ -465,6 +509,7 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
     /// > raise illegal instruction exceptions. A read/write register might also contain some bits
     /// > that are read-only, in which case writes to the read-only bits are ignored.
     pub fn csrrc(&mut self, dest: Specifier, csr: CsrSpecifier, src: Specifier) -> ExecutionResult {
+        trace!("Executing csrrc {dest} {csr} {src}");
         self.csr_reg_op(CsrOp::ReadClear, dest, csr, src)
     }
 
@@ -490,6 +535,7 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
         csr: CsrSpecifier,
         immediate: u32,
     ) -> ExecutionResult {
+        trace!("Executing csrrwi {dest} {csr} {immediate}");
         self.csr_imm_op(CsrOp::ReadWrite, dest, csr, immediate)
     }
 
@@ -517,6 +563,7 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
         csr: CsrSpecifier,
         immediate: u32,
     ) -> ExecutionResult {
+        trace!("Executing csrrsi {dest} {csr} {immediate}");
         self.csr_imm_op(CsrOp::ReadSet, dest, csr, immediate)
     }
 
@@ -544,10 +591,12 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
         csr: CsrSpecifier,
         immediate: u32,
     ) -> ExecutionResult {
+        trace!("Executing csrrci {dest} {csr} {immediate}");
         self.csr_imm_op(CsrOp::ReadClear, dest, csr, immediate)
     }
 
     pub fn sret(&mut self) -> ExecutionResult {
+        trace!("Executing sret");
         if self.core.privilege_mode(self.allocator) < PrivilegeLevel::Supervisor {
             return Err(Exception::IllegalInstruction(None));
         }
@@ -572,6 +621,7 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
     }
 
     pub fn mret(&mut self) -> ExecutionResult {
+        trace!("Executing mret");
         if self.core.privilege_mode(self.allocator) < PrivilegeLevel::Machine {
             return Err(Exception::IllegalInstruction(None));
         }
@@ -596,6 +646,7 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
     }
 
     pub fn wfi(&mut self) -> ExecutionResult {
+        trace!("Executing wfi");
         // Implemented as a nop, which is allowed.
         increment_pc(self.core.registers_mut(self.allocator));
         Ok(())

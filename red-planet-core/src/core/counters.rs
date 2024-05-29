@@ -1,3 +1,4 @@
+use log::trace;
 use space_time::allocator::Allocator;
 
 use crate::{system_bus::SystemBus, PrivilegeLevel};
@@ -91,12 +92,15 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
         // Always set skip_next_mcycle_increment to false, even if count_inhibit is true.
         if counters.skip_next_mcycle_increment {
             counters.skip_next_mcycle_increment = false;
-            // Cycle counter prevented from updating because guest code wrote to it this step.
+            trace!(
+                "Cycle counter prevented from incrementing because it has been written by guest \
+                 code in the same step"
+            );
             return;
         }
 
         if count_inhibit {
-            // Cycle counter prevented from updating by mcountinhibit.
+            trace!("Cycle counter prevented from incrementing by mcountinhibit");
             return;
         }
 
@@ -115,12 +119,15 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
         // Always set skip_next_minstret_increment to false, even if count_inhibit is true.
         if counters.skip_next_minstret_increment {
             counters.skip_next_minstret_increment = false;
-            // Instret counter prevented from updating because guest code wrote to it this step.
+            trace!(
+                "Instret counter prevented from incrementing because it has been written by guest \
+                 code in the same step"
+            );
             return;
         }
 
         if count_inhibit {
-            // Instret counter prevented from updating by mcountinhibit.
+            trace!("Instret counter prevented from incrementing by mcountinhibit");
             return;
         }
 

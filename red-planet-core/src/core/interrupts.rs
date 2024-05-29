@@ -1,6 +1,7 @@
 use std::rc::Weak;
 
 use bitvec::{array::BitArray, field::BitField, order::Lsb0, view::BitView};
+use log::trace;
 use space_time::allocator::Allocator;
 
 use super::{Core, CsrReadResult, CsrWriteResult, Interrupt};
@@ -80,6 +81,7 @@ impl Interrupts {
     ///
     /// Controlled by the PLIC.
     pub fn set_m_external(&mut self, value: bool) {
+        trace!("Setting mip.MEIP to {value}");
         self.mip.set(MACHINE_EXTERNAL_INTERRUPT, value);
     }
 
@@ -88,6 +90,7 @@ impl Interrupts {
     /// Controlled by the PLIC. Note that calling this with `false` does not mean the SEIP field
     /// will be set to `0`, since it is ORed with the (hidden) software-writable SEIP bit.
     pub fn set_s_external(&mut self, value: bool) {
+        trace!("Setting mip.SEIP to {value}");
         self.seip_external = value;
         self.mip.set(
             SUPERVISOR_EXTERNAL_INTERRUPT,
@@ -99,6 +102,7 @@ impl Interrupts {
     ///
     /// Controlled externally based on memory-mapped mtime and mtimecmp registers.
     pub fn set_m_timer(&mut self, value: bool) {
+        trace!("Setting mip.MTIP to {value}");
         self.mip.set(MACHINE_TIMER_INTERRUPT, value);
     }
 
@@ -110,6 +114,7 @@ impl Interrupts {
     ///
     /// Controlled by accesses to memory-mapped control registers.
     pub fn set_m_soft(&mut self) {
+        trace!("Setting mip.MSIP to true");
         self.mip.set(MACHINE_SOFTWARE_INTERRUPT, true);
     }
 
@@ -119,6 +124,7 @@ impl Interrupts {
     ///
     /// May be set to 1 by the PLIC, but is also settable from guest code.
     pub fn set_s_soft(&mut self) {
+        trace!("Setting mip.SSIP to true");
         self.mip.set(SUPERVISOR_SOFTWARE_INTERRUPT, true);
     }
 

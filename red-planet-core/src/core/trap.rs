@@ -1,6 +1,7 @@
 //! Trap-related state and read/write logic for corresponding CSRs on [`Core`].
 
 use bitvec::{array::BitArray, field::BitField, order::Lsb0, view::BitView};
+use log::{debug, trace};
 use space_time::allocator::Allocator;
 
 use crate::{system_bus::SystemBus, PrivilegeLevel};
@@ -141,6 +142,7 @@ impl Trap {
     /// Panics of `address` is not word-aligned.
     pub fn set_mepc(&mut self, address: u32) {
         assert!(address & 0b11 == 0);
+        trace!("Setting mepc to {address:#010x}");
         self.mepc = address;
     }
 
@@ -159,6 +161,7 @@ impl Trap {
     /// Panics of `address` is not word-aligned.
     pub fn set_sepc(&mut self, address: u32) {
         assert!(address & 0b11 == 0);
+        trace!("Setting sepc to {address:#010x}");
         self.sepc = address;
     }
 
@@ -194,6 +197,7 @@ impl Trap {
     pub fn set_m_trap_cause(&mut self, cause: impl Into<Cause>) {
         self.last_m_trap_cause = cause.into();
         self.mcause_override = None;
+        trace!("Setting mcause to {:?}", &self.last_s_trap_cause);
     }
 
     /// Indicate a trap caused by `cause` is taken in S-mode.
@@ -204,6 +208,7 @@ impl Trap {
     pub fn set_s_trap_cause(&mut self, cause: impl Into<Cause>) {
         self.last_s_trap_cause = cause.into();
         self.scause_override = None;
+        trace!("Setting scause to {:?}", &self.last_s_trap_cause);
     }
 
     /// Returns `true` if the medeleg register indicates a trap caused by `cause` should be
@@ -218,35 +223,47 @@ impl Trap {
     /// Sets the value of the mtval register to `value`.
     // TODO: Enforce appropriate restrictions.
     pub fn set_mtval(&mut self, value: u32) {
+        trace!("Setting mtval to {value:#x}");
         self.mtval = value;
     }
 
     /// Sets the value of the mtval2 register to `value`.
     // TODO: Enforce appropriate restrictions.
     pub fn set_mtval2(&mut self, value: u32) {
+        trace!("Setting mtval2 to {value:#x}");
         self.mtval2 = value;
     }
 
     /// Sets the value of the mtinst register to `value`.
     // TODO: Enforce appropriate restrictions.
     pub fn set_mtinst(&mut self, value: u32) {
+        trace!("Setting mtinst to {value:#x}");
         self.mtinst = value;
     }
 
     /// Sets the value of the stval register to `value`.
     // TODO: Enforce appropriate restrictions.
     pub fn set_stval(&mut self, value: u32) {
+        trace!("Setting stval to {value:#x}");
         self.stval = value;
     }
 }
 
 impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
     pub(super) fn trap(&self, allocator: &mut A, cause: Cause) {
+        debug!("Trapping for cause {cause:?}");
         let pc = self.registers(allocator).pc();
         let privilege_mode = self.privilege_mode(allocator);
         // Determine whether we are trapping into S-mode or M-mode.
         let delegate = self.should_delegate(allocator, cause.code());
         let trap_to_s_mode = privilege_mode != PrivilegeLevel::Machine && delegate;
+        trace!(
+            "Trapping from {privilege_mode} into {}",
+            match trap_to_s_mode {
+                true => "S-mode",
+                false => "M-mode",
+            },
+        );
         let trap = self.trap.get_mut(allocator);
         // Set xcause and xepc register.
         match trap_to_s_mode {
@@ -299,6 +316,7 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
             (VectorMode::Vectored, Cause::Exception(_)) | (VectorMode::Direct, _) => tvec_base,
         };
         // Set pc to the correct trap handler.
+        trace!("Setting pc to trap handler address {trap_handler_address:#010x}");
         *self.registers_mut(allocator).pc_mut() = trap_handler_address;
         // Update fields of status register.
         let status = self.status.get_mut(allocator);
@@ -315,10 +333,12 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
             }
         }
         // Update the core's privilege mode.
-        *self.privilege_mode.get_mut(allocator) = match trap_to_s_mode {
+        let new_privilege_mode = match trap_to_s_mode {
             true => PrivilegeLevel::Supervisor,
             false => PrivilegeLevel::Machine,
         };
+        trace!("Switching to privilege mode {new_privilege_mode}");
+        *self.privilege_mode.get_mut(allocator) = new_privilege_mode;
     }
 
     fn should_delegate(&self, allocator: &A, cause: impl Into<CauseCode>) -> bool {

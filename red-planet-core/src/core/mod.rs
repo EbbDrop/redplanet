@@ -24,6 +24,7 @@ use counters::Counters;
 use envcfg::Envcfg;
 use execute::Executor;
 use interrupts::Interrupts;
+use log::{debug, trace};
 use mmu::Mmu;
 use status::Status;
 use std::fmt::Debug;
@@ -193,6 +194,7 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
     pub const MCONFIGPTR: u32 = 0;
 
     pub fn new(allocator: &mut A, system_bus: B, config: Config) -> Self {
+        debug!("Creating core with config {config:?}");
         let registers = Allocated::new(allocator, Registers::new(config.reset_vector));
         Self {
             config,
@@ -286,6 +288,7 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
 
     /// Generate a Reset.
     pub fn reset(&self, allocator: &mut A) {
+        trace!("Resetting core");
         // Clear all x registers, reset pc to the configured reset vector.
         *self.registers.get_mut(allocator) = Registers::new(self.config.reset_vector);
         // Set mcause to an all-zero value.
@@ -308,6 +311,7 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
 
     /// Generate a Non-Maskable Interrupt.
     pub fn nmi(&self, allocator: &mut A) {
+        trace!("Taking Non-Maskable Interrupt in core");
         // NMIs do not reset state; they only update a few registers.
         // Jump to configured nmi vector.
         let pc = self.registers.get_mut(allocator).pc_mut();
@@ -332,6 +336,7 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
         specifier: CsrSpecifier,
         privilege_level: PrivilegeLevel,
     ) -> CsrReadResult {
+        trace!("Reading CSR {specifier} at privilege level {privilege_level}");
         self.check_csr_access(allocator, specifier, privilege_level)?;
         // Ordered according to CSR Listing in the privileged spec.
         match specifier {
@@ -465,6 +470,7 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
         value: u32,
         mask: u32,
     ) -> CsrWriteResult {
+        trace!(value, mask; "Writing CSR {specifier} at privilege level {privilege_level}");
         self.check_csr_access(allocator, specifier, privilege_level)?;
         if csr::is_read_only(specifier) {
             return Err(CsrWriteError::WriteToReadOnly);
@@ -583,10 +589,15 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
         privilege_level: PrivilegeLevel,
     ) -> Result<(), CsrAccessError> {
         if !csr::is_valid(specifier) {
+            debug!("Attempt to access unsupported CSR {specifier}");
             return Err(CsrAccessError::CsrUnsupported(specifier));
         }
         let required_level = csr::required_privilege_level(specifier);
         if privilege_level < required_level {
+            debug!(
+                "Attempt to access CSR {specifier} at insufficient privilege level \
+                 {privilege_level} (requires {required_level})"
+            );
             return Err(CsrAccessError::Privileged {
                 specifier,
                 required_level,
@@ -628,10 +639,11 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
     /// than executing the next instruction. Additionally, if the executed instruction causes an
     /// interrupt (indirectly), it will also be taken by this method.
     pub fn step(&self, allocator: &mut A) {
+        let pc = self.registers(allocator).pc();
+        trace!("Stepping core, pc = {pc:#010x}");
         if self.check_for_interrupts(allocator) {
             return;
         }
-        let pc = self.registers(allocator).pc();
         let raw_instruction = self.fetch_instruction(allocator, pc);
         self.step_with_raw(allocator, raw_instruction);
         self.check_for_interrupts(allocator);
@@ -655,6 +667,11 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
             .and_then(|instruction| self.execute_instruction(allocator, instruction))
             .err();
 
+        if let Some(exception) = exception {
+            trace!("Executing instruction caused exception {exception:?}");
+        }
+
+        trace!("Updating counters after instruction execution");
         self.increment_cycle_counter(allocator);
         match instruction {
             // ECALL and EBREAK are not considered to retire.
@@ -716,6 +733,7 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
         allocator: &mut A,
         instruction: Instruction,
     ) -> ExecutionResult {
+        trace!("Executing instruction {instruction:?}");
         let mut executor = Executor {
             allocator,
             core: self,
@@ -861,6 +879,7 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
     /// > increasing halfword addresses, with the lowest-addressed parcel holding the
     /// > lowest-numbered bits in the instruction specification.
     fn fetch_instruction(&self, allocator: &mut A, address: u32) -> Result<u32, Exception> {
+        trace!("Fetching instruction from vaddr {address:#010x}");
         self.mmu()
             .fetch_instruction(allocator, address)
             .map_err(|err| match err {
@@ -880,8 +899,10 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
     /// Checks whether any interrupts are pending and can be taken. If so, it executes the
     /// appopriate trap logic, and returns `true`. If not, it just returns `false`.
     fn check_for_interrupts(&self, allocator: &mut A) -> bool {
+        trace!("Checking for interrupts");
         match self.highest_priority_ready_interrupt(allocator) {
             Some(interrupt) => {
+                debug!("Found ready interrupt {interrupt:?}, taking it");
                 self.trap(allocator, interrupt.into());
                 true
             }

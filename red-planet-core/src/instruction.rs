@@ -1,5 +1,6 @@
 use crate::core::CsrSpecifier;
 use crate::registers::Specifier;
+use log::trace;
 use thiserror::Error;
 
 /// Data structure that can hold any supported instruction in its decoded form.
@@ -158,6 +159,7 @@ pub enum CsrOp {
 
 impl Instruction {
     pub fn decode(raw_instruction: u32) -> Result<Self, DecodeError> {
+        trace!("Decoding instruction {raw_instruction:#010x}");
         match opcode(raw_instruction).ok_or(DecodeError::UnsupportedOpcode)? {
             Opcode::OpImm => match i_funct(raw_instruction) {
                 Some(op) => Ok(Self::OpImm {
