@@ -1,5 +1,6 @@
 //! Core Local Interruptor
 
+use log::trace;
 use space_time::allocator::Allocator;
 
 use crate::bus::Bus;
@@ -69,6 +70,7 @@ impl<A: Allocator> Clint<A> {
     }
 
     pub fn step(&self, allocator: &mut A) {
+        trace!("Stepping time of CLINT");
         // TODO: Use some sort of external time to be independent of execution speed
         self.update(allocator, |state| state.mtime = state.mtime.wrapping_add(1));
     }

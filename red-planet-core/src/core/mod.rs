@@ -903,7 +903,6 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
     /// > increasing halfword addresses, with the lowest-addressed parcel holding the
     /// > lowest-numbered bits in the instruction specification.
     fn fetch_instruction(&self, allocator: &mut A, address: u32) -> Result<u32, Exception> {
-        trace!("Fetching instruction from vaddr {address:#010x}");
         self.mmu()
             .fetch_instruction(allocator, address)
             .map_err(|err| match err {
@@ -930,7 +929,10 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
                 self.trap(allocator, interrupt.into());
                 true
             }
-            None => false,
+            None => {
+                trace!("No interrupts ready");
+                false
+            }
         }
     }
 }

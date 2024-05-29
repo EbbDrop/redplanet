@@ -1,3 +1,3 @@
 [workspace]
 resolver = "2"
-members = ["red-planet-core", "space-time"]
+members = ["red-planet-cli", "red-planet-core", "space-time"]

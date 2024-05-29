@@ -70,9 +70,9 @@ impl<A: Allocator> Ram<A> {
             return;
         }
         const_assert!(usize::BITS >= 32);
-        let size = buf.len().min((self.max_address - address) as usize + 1);
+        let end = ((self.max_address - address) as usize).min(buf.len() - 1);
         let data = allocator.get_array(self.data).unwrap();
-        match data.read(&mut buf[..size], address as usize) {
+        match data.read(&mut buf[..=end], address as usize) {
             true => (),
             false => unreachable!(),
         }
@@ -89,9 +89,9 @@ impl<A: Allocator> Ram<A> {
             return;
         }
         const_assert!(usize::BITS >= 32);
-        let size = buf.len().min((self.max_address - address) as usize + 1);
+        let end = ((self.max_address - address) as usize).min(buf.len() - 1);
         let mut data = allocator.get_array_mut(self.data).unwrap();
-        match data.write(address as usize, &buf[..size]) {
+        match data.write(address as usize, &buf[..=end]) {
             true => (),
             false => unreachable!(),
         }
