@@ -387,7 +387,7 @@ fn rs2(raw_instruction: u32) -> Specifier {
 }
 
 fn csr(raw_instruction: u32) -> CsrSpecifier {
-    i_imm(raw_instruction) as u16
+    (raw_instruction >> 20) as u16
 }
 
 fn i_funct(raw_instruction: u32) -> Option<RegImmOp> {

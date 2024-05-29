@@ -132,7 +132,7 @@ impl<A: Allocator> crate::system_bus::SystemBus<A> for SystemBus<A> {
             Resource::Clint => size == 4 || size == 8,
             Resource::Plic => size == 4,
             Resource::Uart0 => true,
-            Resource::Flash => true,
+            Resource::Flash => !matches!(access_type, AccessType::Write),
             Resource::Dram => true,
             Resource::PowerDown => matches!(access_type, AccessType::Write),
         }

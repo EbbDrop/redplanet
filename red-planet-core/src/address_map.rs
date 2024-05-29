@@ -45,11 +45,11 @@ impl<T> AddressMap<T> {
     pub fn range_value(&self, address: u32) -> (AddressRange, Option<&T>) {
         match self.ordered_ranges.binary_search_by(|(range, _)| {
             if address < range.start() {
-                Ordering::Less
+                Ordering::Greater
             } else if address <= range.end() {
                 Ordering::Equal
             } else {
-                Ordering::Greater
+                Ordering::Less
             }
         }) {
             Ok(index) => {

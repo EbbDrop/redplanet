@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 use std::collections::Bound;
-use std::fmt;
+use std::fmt::{self, Debug};
 use std::fmt::{Display, Formatter};
 use std::ops::{Range, RangeBounds, RangeInclusive};
 use std::slice::SliceIndex;
@@ -12,7 +12,7 @@ use thiserror::Error;
 ///
 /// Note that this is indifferent as to what is addressed, this can be bytes, words, or anything
 /// else.
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Copy, Clone, Eq, PartialEq)]
 pub struct AddressRange {
     start: u32,
     end: u32,
@@ -27,6 +27,12 @@ impl Default for AddressRange {
 impl Display for AddressRange {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "[{:#x}, {:#x}]", self.start, self.end)
+    }
+}
+
+impl Debug for AddressRange {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "[{:#x}...{:#x}]", self.start, self.end)
     }
 }
 

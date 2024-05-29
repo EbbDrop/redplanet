@@ -85,16 +85,21 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
     /// Increment the register(s) that keep track of the cycle count, if not inhibited by the
     /// counter control registers.
     pub(super) fn increment_cycle_counter(&self, allocator: &mut A) {
-        if self.counter_control.get(allocator).mcountinhibit.cy() {
-            // Cycle counter prevented from updating by mcountinhibit.
-            return;
-        }
+        let count_inhibit = self.counter_control.get(allocator).mcountinhibit.cy();
         let counters = self.counters.get_mut(allocator);
+
+        // Always set skip_next_mcycle_increment to false, even if count_inhibit is true.
         if counters.skip_next_mcycle_increment {
             counters.skip_next_mcycle_increment = false;
             // Cycle counter prevented from updating because guest code wrote to it this step.
             return;
         }
+
+        if count_inhibit {
+            // Cycle counter prevented from updating by mcountinhibit.
+            return;
+        }
+
         counters.mcycle = counters.mcycle.wrapping_add(1);
         if counters.mcycle == 0 {
             counters.mcycleh = counters.mcycleh.wrapping_add(1);
@@ -104,16 +109,21 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
     /// Increment the register(s) that keep track of the retired instructions count, if not
     /// inhibited by the counter control register.
     pub(super) fn increment_instret_counter(&self, allocator: &mut A) {
-        if self.counter_control.get(allocator).mcountinhibit.ir() {
+        let count_inhibit = self.counter_control.get(allocator).mcountinhibit.ir();
+        let counters = self.counters.get_mut(allocator);
+
+        // Always set skip_next_minstret_increment to false, even if count_inhibit is true.
+        if counters.skip_next_minstret_increment {
+            counters.skip_next_minstret_increment = false;
+            // Instret counter prevented from updating because guest code wrote to it this step.
+            return;
+        }
+
+        if count_inhibit {
             // Instret counter prevented from updating by mcountinhibit.
             return;
         }
-        let counters = self.counters.get_mut(allocator);
-        if counters.skip_next_minstret_increment {
-            counters.skip_next_minstret_increment = false;
-            // Instret counter prevented from updating because geust code wrote to it this step.
-            return;
-        }
+
         counters.minstret = counters.minstret.wrapping_add(1);
         if counters.minstret == 0 {
             counters.minstreth = counters.minstreth.wrapping_add(1);

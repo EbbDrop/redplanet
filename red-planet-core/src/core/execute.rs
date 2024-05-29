@@ -597,6 +597,7 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
 
     pub fn wfi(&mut self) -> ExecutionResult {
         // Implemented as a nop, which is allowed.
+        increment_pc(self.core.registers_mut(self.allocator));
         Ok(())
     }
 
@@ -799,6 +800,7 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
                 .write_csr(self.allocator, csr, privilege_level, value, mask)
                 .map_err(|_| Exception::IllegalInstruction(None))?;
         }
+        increment_pc(self.core.registers_mut(self.allocator));
         Ok(())
     }
 }

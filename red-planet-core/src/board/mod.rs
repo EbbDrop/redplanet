@@ -81,7 +81,7 @@ impl<A: Allocator> Board<A> {
             [
                 0x97, 0x02, 0x00, 0x00, // auipc  t0, 0x0
                 0x73, 0x25, 0x40, 0xf1, // csrr   a0, mhartid
-                0x83, 0xa2, 0x82, 0x01, // lw     t0, 16(t0)
+                0x83, 0xa2, 0x02, 0x01, // lw     t0, 16(t0)
                 0x67, 0x80, 0x02, 0x00, // jr     t0
                 s[0], s[1], s[2], s[3], // .word start_address
             ]
@@ -140,6 +140,14 @@ impl<A: Allocator> Board<A> {
         Self { core, system_bus }
     }
 
+    pub fn drop(self, allocator: &mut A) {
+        // Unwrap safety: There should only be weak ptrs to the `core`.
+        Rc::into_inner(self.core).unwrap().drop(allocator);
+
+        // Unwrap safety: `core` is the only other owner and it has been dropped in the line above.
+        Rc::into_inner(self.system_bus).unwrap().drop(allocator);
+    }
+
     pub fn core(&self) -> &Core<A, impl crate::system_bus::SystemBus<A>> {
         &self.core
     }
@@ -160,7 +168,9 @@ impl<A: Allocator> Board<A> {
         &self.system_bus.uart0
     }
 
-    /// Force board back to its reset state.
+    /// Force board back to its reset state. Matches a hardware reset, meaning this is **not**
+    /// equivalent to replacing this with [`Board::new`]. For example, some registers may not be
+    /// cleared.
     pub fn reset(&self, allocator: &mut A) {
         self.core.reset(allocator);
         self.system_bus.dram.reset(allocator);
@@ -180,6 +190,9 @@ impl<A: Allocator> Board<A> {
     ///
     /// Bytes written to vacant, read-only, or I/O regions are ignored.
     pub fn load_physical(&self, allocator: &mut A, base_address: u32, buf: &[u8]) {
+        if buf.is_empty() {
+            return;
+        }
         let memory_map = &self.system_bus.memory_map;
         let mut next_address = Some(base_address);
         while let Some(address) = next_address {
@@ -195,7 +208,7 @@ impl<A: Allocator> Board<A> {
                 Resource::Dram => {
                     const_assert!(usize::BITS >= 32);
                     let slice_start = (address - base_address) as usize;
-                    let slice_end = (range.end() - base_address) as usize;
+                    let slice_end = ((range.end() - base_address) as usize).min(buf.len() - 1);
                     let slice = &buf[slice_start..=slice_end];
                     self.system_bus.write(allocator, address, slice);
                 }
@@ -210,20 +223,24 @@ impl<A: Allocator> Board<A> {
             }
         }
     }
+
+    /// Step the single core of this board once, if the board is not powered down.
+    pub fn step(&self, allocator: &mut A) {
+        if self.is_powered_down(allocator) {
+            return;
+        }
+        self.core.step(allocator);
+        self.system_bus.clint.step(allocator);
+    }
 }
 
 impl<A: Allocator> Simulatable<A> for Board<A> {
     fn tick(&self, allocator: &mut A) {
-        self.core.step(allocator);
-        self.system_bus.clint.step(allocator);
+        self.step(allocator);
     }
 
     fn drop(self, allocator: &mut A) {
-        // Unwrap safety: There should only be weak ptr's to the `core`.
-        Rc::into_inner(self.core).unwrap().drop(allocator);
-
-        // Unwrap safety: `core` is the only other owner and it has been drop in the line above.
-        Rc::into_inner(self.system_bus).unwrap().drop(allocator);
+        self.drop(allocator);
     }
 }
 

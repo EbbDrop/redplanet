@@ -196,7 +196,7 @@ impl<S: Simulatable<SimulationAllocator>> Simulator<S> {
     /// // would be better done using:
     /// simulator.step();
     /// ```
-    pub fn step_with<F, R>(&mut self, name: &'static str, custom_tick: F) -> StepResult<R>
+    pub fn step_with<F, R>(&mut self, name: &'static str, custom_tick: F) -> R
     where
         F: 'static + Fn(&mut SimulationAllocator, &S) -> R,
     {
@@ -222,14 +222,14 @@ impl<S: Simulatable<SimulationAllocator>> Simulator<S> {
             self.make_snapshot();
         }
 
-        StepResult::Ok(res)
+        res
     }
 
     /// Advance the simulation forward by one tick.
     ///
     /// This will erase the forward history, i.e. all future undone steps can no longer be redone
     /// hereafter.
-    pub fn step(&mut self) -> StepResult {
+    pub fn step(&mut self) {
         if self.is_head_detached() {
             self.clear_forward_history();
         }
@@ -241,8 +241,6 @@ impl<S: Simulatable<SimulationAllocator>> Simulator<S> {
         if self.should_create_snapshot() {
             self.make_snapshot();
         }
-
-        StepResult::Ok(())
     }
 
     /// Replay a previously undone step. Assumes such a step exists, and ignores any snapshots that
@@ -406,11 +404,6 @@ impl<S: Simulatable<SimulationAllocator>> Debug for Tick<S> {
 
 pub trait Event: Debug {
     // TODO
-}
-
-pub enum StepResult<T = ()> {
-    Ok(T),
-    Stopped,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
