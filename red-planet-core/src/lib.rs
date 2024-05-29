@@ -11,6 +11,7 @@ pub mod board;
 pub mod bus;
 pub mod core;
 pub mod instruction;
+pub mod interrupt;
 pub mod registers;
 pub mod resources;
 pub mod simulator;

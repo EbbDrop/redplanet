@@ -1,5 +1,4 @@
 use crate::bus::Bus;
-use crate::simulator::Simulatable;
 use crate::AddressRange;
 use space_time::allocator::{Allocator, ArrayAccessor, ArrayAccessorMut};
 
@@ -91,14 +90,8 @@ impl<A: Allocator> Rom<A> {
             buf[self.data_len..size].fill(0);
         }
     }
-}
 
-impl<A: Allocator> Simulatable<A> for Rom<A> {
-    fn tick(&self, allocator: &mut A) {
-        let _ = allocator;
-    }
-
-    fn drop(self, allocator: &mut A) {
+    pub fn drop(self, allocator: &mut A) {
         allocator.remove_array(self.data).unwrap()
     }
 }

@@ -1,5 +1,6 @@
 //! Provides a simulatable RV32I core implementation.
 
+pub mod clint;
 mod counter_control;
 mod counters;
 pub mod csr;
@@ -216,6 +217,10 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
         self.trap.drop(allocator);
         self.interrupts.drop(allocator);
         self.envcfg.drop(allocator);
+    }
+
+    pub fn system_bus(&self) -> &B {
+        &self.system_bus
     }
 
     /// Provide a read-only view of this core's configuration.
@@ -891,7 +896,7 @@ impl<A: Allocator, B: SystemBus<A>> Simulatable<A> for Core<A, B> {
     }
 
     fn drop(self, allocator: &mut A) {
-        self.drop(allocator);
+        self.drop(allocator)
     }
 }
 

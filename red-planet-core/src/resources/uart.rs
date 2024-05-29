@@ -1,12 +1,10 @@
 //! Implementation of an UART16550A as a simulatable device.
 
 use crate::bus::Bus;
-use crate::simulator::Simulatable;
+use crate::interrupt::DynIrqCallback;
 use bitvec::order::Lsb0;
 use bitvec::view::BitView;
 use space_time::allocator::Allocator;
-use std::io;
-use std::io::{Read, Stdin, Stdout, Write};
 use thiserror::Error;
 
 /// UART device implementation, unfinished and not conforming to any spec.
@@ -14,26 +12,11 @@ use thiserror::Error;
 /// Resources:
 /// - <https://uart16550.readthedocs.io>
 /// - <https://github.com/qemu/qemu/blob/master/hw/char/serial.c>
-///
-/// Interrupts are not yet supported.
-///
-/// Note that for proper operation, only one `read_` or `write_` method can be called in between
-/// ticks. It is required to first call [`Uart::tick`] before calling another `read_` or `write_`.
-/// (Also holds for [`Uart::read`] and [`Uart::write`].)
 #[derive(Debug)]
 pub struct Uart<A: Allocator> {
     state: A::Id<State>,
-    stdin: Stdin,
-    stdout: Stdout,
+    interrupt_callback: DynIrqCallback<A>,
 }
-
-impl<A: Allocator> PartialEq for Uart<A> {
-    fn eq(&self, other: &Self) -> bool {
-        self.state == other.state
-    }
-}
-
-impl<A: Allocator> Eq for Uart<A> {}
 
 /// State of an [`Uart`].
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -87,6 +70,22 @@ impl State {
         }
     }
 
+    /// Return `true` if enable receiver line status interrupt
+    fn ier_rlsi(&self) -> bool {
+        let bits = self.lsr.view_bits::<Lsb0>();
+        bits[0] || bits[2]
+    }
+
+    /// Return `true` if enable receiver data interrupt is set
+    fn ier_rdi(&self) -> bool {
+        self.lsr.view_bits::<Lsb0>()[0]
+    }
+
+    /// Return `true` if enable Modem status interrupt is set
+    fn ier_msi(&self) -> bool {
+        self.lsr.view_bits::<Lsb0>()[3]
+    }
+
     /// Returns `true` if the Divisor Latch Access Bit is `1`.
     fn dlab(&self) -> bool {
         (self.lcr >> 7) == 1
@@ -136,6 +135,16 @@ impl State {
         self.lsr.view_bits_mut::<Lsb0>().set(6, value);
     }
 
+    /// Return true if any of the interrupt triggering bits are set
+    fn lsr_int_any(&self) -> bool {
+        self.lsr & 0x1E != 0
+    }
+
+    /// Return true if any of the delta bits are set
+    fn msr_any_delta(&self) -> bool {
+        self.msr & 0x0F != 0
+    }
+
     /// Returns `true` if the UART is operational, which is the case if the divisor latch value is
     /// non-zero.
     fn is_operational(&self) -> bool {
@@ -166,11 +175,10 @@ pub enum WriteError {
 
 impl<A: Allocator> Uart<A> {
     /// Create new UART in reset state.
-    pub fn new(allocator: &mut A) -> Self {
+    pub fn new(allocator: &mut A, interrupt_callback: DynIrqCallback<A>) -> Self {
         Self {
             state: allocator.insert(State::new()),
-            stdin: io::stdin(),
-            stdout: io::stdout(),
+            interrupt_callback,
         }
     }
 
@@ -179,9 +187,30 @@ impl<A: Allocator> Uart<A> {
         *allocator.get_mut(self.state).unwrap() = State::new();
     }
 
-    /// Returns `true` if there's a pending interrupt (INT_O port high).
-    pub fn interrupt_pending(&self) -> bool {
-        todo!()
+    fn update_interrupt(&self, allocator: &mut A) {
+        const UART_IIR_NO_INT: u8 = 0x01;
+        const UART_IIR_RLSI: u8 = 0x06;
+        const UART_IIR_RDI: u8 = 0x04;
+        const UART_IIR_MSI: u8 = 0x00;
+
+        let state = allocator.get_mut(self.state).unwrap();
+
+        let new_irr = if state.ier_rlsi() && state.lsr_int_any() {
+            UART_IIR_RLSI
+        } else if state.ier_rdi() && state.lsr_dr() && (state.rx_fifo_len >= state.rx_fifo_itl) {
+            UART_IIR_RDI
+        } else if state.ier_msi() && state.msr_any_delta() {
+            UART_IIR_MSI
+        } else {
+            UART_IIR_NO_INT
+        };
+
+        state.iir = new_irr | (state.iir & 0xF0);
+
+        match new_irr {
+            UART_IIR_NO_INT => self.interrupt_callback.lower(allocator),
+            _ => self.interrupt_callback.raise(allocator),
+        }
     }
 
     pub fn read(&self, allocator: &mut A, address: u8) -> Result<u8, ReadError> {
@@ -221,6 +250,7 @@ impl<A: Allocator> Uart<A> {
 
     pub fn write(&self, allocator: &mut A, address: u8, value: u8) -> Result<(), WriteError> {
         let dlab = allocator.get(self.state).unwrap().dlab();
+
         match address {
             0 if dlab => self.write_dll(allocator, value),
             0 => self.write_thr(allocator, value),
@@ -288,6 +318,7 @@ impl<A: Allocator> Uart<A> {
                 state.set_lsr_dr(false);
             }
         }
+        self.update_interrupt(allocator);
         value
     }
 
@@ -329,6 +360,7 @@ impl<A: Allocator> Uart<A> {
     /// Writes a value to the Interrupt Enable Register
     pub fn write_ier(&self, allocator: &mut A, value: u8) {
         allocator.get_mut(self.state).unwrap().ier = value;
+        self.update_interrupt(allocator);
     }
 
     /// Reads the value of the Interrupt Identification Register.
@@ -358,6 +390,7 @@ impl<A: Allocator> Uart<A> {
             (true, false) => 8,
             (true, true) => 14,
         };
+        self.update_interrupt(allocator);
     }
 
     /// Reads the value of the Line Control Register.
@@ -408,66 +441,79 @@ impl<A: Allocator> Uart<A> {
     pub fn read_msr_pure(&self, allocator: &A) -> u8 {
         allocator.get(self.state).unwrap().msr
     }
+
+    pub fn drop(self, allocator: &mut A) {
+        allocator.remove(self.state).unwrap()
+    }
 }
 
-impl<A: Allocator> Simulatable<A> for Uart<A> {
-    fn tick(&self, allocator: &mut A) {
-        let mut state = allocator.get(self.state).unwrap();
+// Public methods mend to be used by an external consumer of this library
+impl<A: Allocator> Uart<A> {
+    /// Amount of bytes that can be read from the UART.
+    pub fn pending_output_amount(&self, allocator: &A) -> usize {
+        let state = allocator.get(self.state).unwrap();
         if !state.is_operational() {
-            return;
+            return 0;
         }
-        if (state.rx_fifo_len as usize) < state.rx_fifo_buf.len() {
-            {
-                let state = allocator.get_mut(self.state).unwrap();
-                match self
-                    .stdin
-                    .lock()
-                    .read(&mut state.rx_fifo_buf[(state.rx_fifo_len as usize)..])
-                {
-                    Ok(n) => {
-                        state.rx_fifo_len += n as u8;
-                        if state.rx_fifo_len > 0 {
-                            state.set_lsr_dr(true);
-                        }
-                    }
-                    Err(err) => {
-                        // Ignore IO errors, but log them anyway. TODO: do not use eprintln to log!
-                        eprintln!("Encountered IO error while reading from stdin: {}", err);
-                    }
-                }
-            }
-            state = allocator.get(self.state).unwrap();
-        }
-        if state.tx_fifo_len > 0 {
-            let mut lock = self.stdout.lock();
-            match lock.write(&state.tx_fifo_buf[..(state.tx_fifo_len as usize)]) {
-                Ok(n) => {
-                    let state = allocator.get_mut(self.state).unwrap();
-                    state
-                        .tx_fifo_buf
-                        .copy_within(n..(state.tx_fifo_len as usize), 0);
-                    state.tx_fifo_len -= n as u8;
-                    if (state.tx_fifo_len as usize) < state.tx_fifo_buf.len() {
-                        state.set_lsr_thre(true);
-                    }
-                    if state.tx_fifo_len == 0 {
-                        state.set_lsr_tfe(true);
-                    }
-                    if let Err(err) = lock.flush() {
-                        // Ignore IO errors, but log them anyway. TODO: do not use eprintln to log!
-                        eprintln!("Encountered IO error while flushing stdout: {}", err);
-                    }
-                }
-                Err(err) => {
-                    // Ignore IO errors, but log them anyway. TODO: do not use eprintln to log!
-                    eprintln!("Encountered IO error while writing to stdout: {}", err);
-                }
-            }
-        }
+        state.tx_fifo_len as usize
     }
 
-    fn drop(self, allocator: &mut A) {
-        allocator.remove(self.state).unwrap()
+    /// Amount of bytes that can be written to the UART.
+    pub fn input_space(&self, allocator: &A) -> usize {
+        let state = allocator.get(self.state).unwrap();
+        if !state.is_operational() {
+            return 0;
+        }
+        state.rx_fifo_buf.len() - state.rx_fifo_len as usize
+    }
+
+    /// Writes up to [`Self::pending_output_amount`] bytes from `input` into the rx buffer, and
+    /// writes [`Self::pending_output_amount`] into `output`.
+    ///
+    /// The amount of bytes read from `input` and the amount written to `output` are returned, in
+    /// that order.
+    ///
+    /// This function is expensive to execute, even if nothing is read or written, so make sure to
+    /// check [`Self::pending_output_amount`] and [`Self::pending_output_amount`] before calling
+    /// this function to make sure it makes sense to do so.
+    pub fn push_and_read(
+        &self,
+        allocator: &mut A,
+        input: &[u8],
+        output: &mut [u8],
+    ) -> (usize, usize) {
+        let state = allocator.get_mut(self.state).unwrap();
+        if !state.is_operational() {
+            return (0, 0);
+        }
+
+        let rx_buf = &mut state.rx_fifo_buf[(state.rx_fifo_len as usize)..];
+        let input_size = rx_buf.len().min(input.len());
+        rx_buf[..input_size].copy_from_slice(&input[..input_size]);
+        state.rx_fifo_len += input_size as u8;
+        if state.rx_fifo_len > 0 {
+            state.set_lsr_dr(true);
+        }
+
+        let output_size = (state.tx_fifo_len as usize).min(output.len());
+        output[..output_size].copy_from_slice(&state.tx_fifo_buf[..output_size]);
+        if output_size != 0 && output_size != state.tx_fifo_len as usize {
+            state
+                .tx_fifo_buf
+                .copy_within(output_size..(state.tx_fifo_len as usize), 0);
+        }
+        state.tx_fifo_len -= output_size as u8;
+
+        if (state.tx_fifo_len as usize) < state.tx_fifo_buf.len() {
+            state.set_lsr_thre(true);
+        }
+        if state.tx_fifo_len == 0 {
+            state.set_lsr_tfe(true);
+        }
+
+        self.update_interrupt(allocator);
+
+        (input_size, output_size)
     }
 }
 

@@ -1,6 +1,11 @@
+use std::rc::Weak;
+
 use super::PowerDown;
 use crate::address_map::TwoWayAddressMap;
 use crate::bus::Bus;
+use crate::core::clint::Clint;
+use crate::interrupt::{DynIrqCallback, IrqCallback};
+use crate::resources::plic::Plic;
 use crate::resources::ram::Ram;
 use crate::resources::rom::Rom;
 use crate::resources::uart::Uart;
@@ -11,6 +16,8 @@ use space_time::allocator::Allocator;
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub(super) enum Resource {
     Mrom,
+    Clint,
+    Plic,
     Uart0,
     Flash,
     Dram,
@@ -36,10 +43,31 @@ pub(super) enum Resource {
 pub(super) struct SystemBus<A: Allocator> {
     pub memory_map: TwoWayAddressMap<Resource>,
     pub mrom: Rom<A>,
+    pub clint: Clint<A>,
+    pub plic: Plic<A>,
     pub uart0: Uart<A>,
     pub flash: Rom<A>,
     pub dram: Ram<A>,
     pub power_down: PowerDown<A>,
+}
+
+struct PlicIrqCallback<A: Allocator> {
+    bus: Weak<SystemBus<A>>,
+    index: u8,
+}
+
+impl<A: Allocator> IrqCallback<A> for PlicIrqCallback<A> {
+    fn raise(&self, allocator: &mut A) {
+        if let Some(bus) = self.bus.upgrade() {
+            bus.plic.raise(allocator, self.index)
+        }
+    }
+
+    fn lower(&self, allocator: &mut A) {
+        if let Some(bus) = self.bus.upgrade() {
+            bus.plic.lower(allocator, self.index)
+        }
+    }
 }
 
 impl<A: Allocator> SystemBus<A> {
@@ -65,11 +93,31 @@ impl<A: Allocator> SystemBus<A> {
     fn bus_of(&self, resource: Resource) -> &dyn Bus<A> {
         match resource {
             Resource::Mrom => &self.mrom,
+            Resource::Clint => &self.clint,
+            Resource::Plic => &self.plic,
             Resource::Uart0 => &self.uart0,
             Resource::Flash => &self.flash,
             Resource::Dram => &self.dram,
             Resource::PowerDown => &self.power_down,
         }
+    }
+
+    /// Panics if `index` is not in 1..=52
+    pub fn get_plic_irq_callback(bus: Weak<Self>, index: u8) -> DynIrqCallback<A> {
+        if !(1..=52).contains(&index) {
+            panic!("Invalid interrupt idx: {index}");
+        }
+
+        DynIrqCallback(Box::new(PlicIrqCallback { bus, index }))
+    }
+
+    pub(super) fn drop(self, allocator: &mut A) {
+        self.mrom.drop(allocator);
+        self.clint.drop(allocator);
+        self.plic.drop(allocator);
+        self.uart0.drop(allocator);
+        self.flash.drop(allocator);
+        self.dram.drop(allocator);
     }
 }
 
@@ -81,6 +129,8 @@ impl<A: Allocator> crate::system_bus::SystemBus<A> for SystemBus<A> {
 
         match resource {
             Resource::Mrom => !matches!(access_type, AccessType::Write),
+            Resource::Clint => size == 4 || size == 8,
+            Resource::Plic => size == 4,
             Resource::Uart0 => true,
             Resource::Flash => true,
             Resource::Dram => true,

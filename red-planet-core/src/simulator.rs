@@ -110,10 +110,6 @@ pub struct Simulator<S: Simulatable<SimulationAllocator>> {
     /// [`IntoTick`] that was passed to [`step_with`] to use as custom tick function at step
     /// `step_index`.
     custom_ticks: Vec<(StepIndex, Tick<S>)>,
-    /// Ordered timeline of `(step_index, event)` pairs, where each `event` happened at step
-    /// `step_index`. Multiple events may have the same `step_index` if they occurred during the
-    /// same step. Their order is the order in which they were registered during the step.
-    events: Vec<(StepIndex, Box<dyn Event>)>,
     head: Head,
 }
 
@@ -136,14 +132,12 @@ impl<S: Simulatable<SimulationAllocator>> Simulator<S> {
             state_index,
             base_snapshot_index: 0,
             next_custom_tick_index: 0,
-            next_event_index: 0,
         };
         Self {
             allocator,
             simulatable,
             snapshots: vec![(head.clone(), snapshot_id)],
             custom_ticks: Vec::new(),
-            events: Vec::new(),
             head,
         }
     }
@@ -198,11 +192,11 @@ impl<S: Simulatable<SimulationAllocator>> Simulator<S> {
     ///
     /// let mut simulator = Simulator::new(|allocator| Component);
     /// // In this example, this:
-    /// simulator.step_with("default tick".into(), |allocator, comp| comp.tick(allocator));
+    /// simulator.step_with("bad tick", |allocator, comp| comp.tick(allocator));
     /// // would be better done using:
     /// simulator.step();
     /// ```
-    pub fn step_with<F, R>(&mut self, name: String, custom_tick: F) -> StepResult<R>
+    pub fn step_with<F, R>(&mut self, name: &'static str, custom_tick: F) -> StepResult<R>
     where
         F: 'static + Fn(&mut SimulationAllocator, &S) -> R,
     {
@@ -261,13 +255,6 @@ impl<S: Simulatable<SimulationAllocator>> Simulator<S> {
                 (custom_tick.tick)(&mut self.allocator, &self.simulatable);
             }
             _ => self.simulatable.tick(&mut self.allocator),
-        }
-
-        match self.events.get(self.head.next_event_index) {
-            Some((s, _event)) if *s == step_index => {
-                // TODO: re-apply `_event`
-            }
-            _ => {}
         }
 
         self.head.state_index = self.head.state_index.next();
@@ -384,9 +371,8 @@ impl<S: Simulatable<SimulationAllocator>> Simulator<S> {
     fn go_to_snapshot(&mut self, snapshot_index: usize) {
         let (Head { state_index, .. }, snapshot_id) = self.snapshots[snapshot_index];
 
-        // Compute new indices in `custom_ticks` and in `events`
+        // Compute new indices in `custom_ticks`
         let next_custom_tick_index = self.custom_ticks.partition_point(|(s, _)| *s < state_index);
-        let next_event_index = self.events.partition_point(|(s, _)| *s < state_index);
 
         self.allocator.0.checkout(snapshot_id).unwrap();
 
@@ -394,7 +380,6 @@ impl<S: Simulatable<SimulationAllocator>> Simulator<S> {
             state_index,
             base_snapshot_index: snapshot_index,
             next_custom_tick_index,
-            next_event_index,
         };
     }
 
@@ -403,21 +388,19 @@ impl<S: Simulatable<SimulationAllocator>> Simulator<S> {
             self.allocator.0.drop_snapshot(snapshot_id).unwrap();
         }
         self.custom_ticks.truncate(self.head.next_custom_tick_index);
-        self.events.truncate(self.head.next_event_index)
     }
 }
 
 struct Tick<S: Simulatable<SimulationAllocator>> {
-    name: String,
+    #[allow(dead_code)]
+    name: &'static str,
     #[allow(clippy::type_complexity)]
     tick: Box<dyn Fn(&mut SimulationAllocator, &S) + 'static>,
 }
 
 impl<S: Simulatable<SimulationAllocator>> Debug for Tick<S> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Tick")
-            .field("name", &self.name)
-            .finish_non_exhaustive()
+        f.debug_struct("Tick").finish_non_exhaustive()
     }
 }
 
@@ -440,8 +423,6 @@ struct Head {
     /// Index in [`Simulator::custom_ticks`] of the next custom tick (starts at `0` if there are no
     /// custom ticks).
     pub next_custom_tick_index: usize,
-    /// Index in [`Simulator::events`] of the next event (starts at `0` if there are no events).
-    pub next_event_index: usize,
 }
 
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]

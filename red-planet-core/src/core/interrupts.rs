@@ -1,8 +1,14 @@
+use std::rc::Weak;
+
 use bitvec::{array::BitArray, field::BitField, order::Lsb0, view::BitView};
 use space_time::allocator::Allocator;
 
 use super::{Core, CsrReadResult, CsrWriteResult, Interrupt};
-use crate::{system_bus::SystemBus, PrivilegeLevel};
+use crate::{
+    interrupt::{DynIrqCallback, IrqCallback},
+    system_bus::SystemBus,
+    PrivilegeLevel,
+};
 
 const SUPERVISOR_SOFTWARE_INTERRUPT: usize = Interrupt::SupervisorSoftwareInterrupt as usize;
 const MACHINE_SOFTWARE_INTERRUPT: usize = Interrupt::MachineSoftwareInterrupt as usize;
@@ -73,7 +79,6 @@ impl Interrupts {
     /// Indicate whether there is an M-level external interrupt pending (MEIP).
     ///
     /// Controlled by the PLIC.
-    #[allow(dead_code)] // TODO: remove once method gets used.
     pub fn set_m_external(&mut self, value: bool) {
         self.mip.set(MACHINE_EXTERNAL_INTERRUPT, value);
     }
@@ -82,7 +87,6 @@ impl Interrupts {
     ///
     /// Controlled by the PLIC. Note that calling this with `false` does not mean the SEIP field
     /// will be set to `0`, since it is ORed with the (hidden) software-writable SEIP bit.
-    #[allow(dead_code)] // TODO: remove once method gets used.
     pub fn set_s_external(&mut self, value: bool) {
         self.seip_external = value;
         self.mip.set(
@@ -94,7 +98,6 @@ impl Interrupts {
     /// Indicate whether there is an M-level timer interrupt pending (MTIP).
     ///
     /// Controlled externally based on memory-mapped mtime and mtimecmp registers.
-    #[allow(dead_code)] // TODO: remove once method gets used.
     pub fn set_m_timer(&mut self, value: bool) {
         self.mip.set(MACHINE_TIMER_INTERRUPT, value);
     }
@@ -106,7 +109,6 @@ impl Interrupts {
     /// Note that it is not possible to clear this bit. That is only possible from guest code.
     ///
     /// Controlled by accesses to memory-mapped control registers.
-    #[allow(dead_code)] // TODO: remove once method gets used.
     pub fn set_m_soft(&mut self) {
         self.mip.set(MACHINE_SOFTWARE_INTERRUPT, true);
     }
@@ -116,7 +118,6 @@ impl Interrupts {
     /// Note that it is not possible to clear this bit. That is only possible from guest code.
     ///
     /// May be set to 1 by the PLIC, but is also settable from guest code.
-    #[allow(dead_code)] // TODO: remove once method gets used.
     pub fn set_s_soft(&mut self) {
         self.mip.set(SUPERVISOR_SOFTWARE_INTERRUPT, true);
     }
@@ -281,5 +282,54 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
         let mie = &mut interrupts.mie;
         mie.store_le(mie.load_le::<u16>() & !mask | value as u16 & mask);
         Ok(())
+    }
+
+    fn raise(&self, code: Interrupt, allocator: &mut A) {
+        let interrupts = self.interrupts.get_mut(allocator);
+        match code {
+            Interrupt::SupervisorSoftwareInterrupt => interrupts.set_s_soft(),
+            Interrupt::MachineSoftwareInterrupt => interrupts.set_m_soft(),
+            Interrupt::SupervisorTimerInterrupt => {}
+            Interrupt::MachineTimerInterrupt => interrupts.set_m_timer(true),
+            Interrupt::SupervisorExternalInterrupt => interrupts.set_s_external(true),
+            Interrupt::MachineExternalInterrupt => interrupts.set_m_external(true),
+        }
+    }
+
+    fn lower(&self, code: Interrupt, allocator: &mut A) {
+        let interrupts = self.interrupts.get_mut(allocator);
+        match code {
+            Interrupt::SupervisorSoftwareInterrupt => {}
+            Interrupt::MachineSoftwareInterrupt => {}
+            Interrupt::SupervisorTimerInterrupt => {}
+            Interrupt::MachineTimerInterrupt => interrupts.set_m_timer(false),
+            Interrupt::SupervisorExternalInterrupt => interrupts.set_s_external(false),
+            Interrupt::MachineExternalInterrupt => interrupts.set_m_external(false),
+        }
+    }
+}
+
+struct CoreIrqCallback<A: Allocator, B: SystemBus<A>> {
+    core: Weak<Core<A, B>>,
+    code: Interrupt,
+}
+
+impl<A: Allocator, B: SystemBus<A> + 'static> Core<A, B> {
+    pub fn get_irq_callback(core: Weak<Self>, code: Interrupt) -> DynIrqCallback<A> {
+        DynIrqCallback(Box::new(CoreIrqCallback { core, code }))
+    }
+}
+
+impl<A: Allocator, B: SystemBus<A>> IrqCallback<A> for CoreIrqCallback<A, B> {
+    fn raise(&self, allocator: &mut A) {
+        if let Some(core) = self.core.upgrade() {
+            core.raise(self.code, allocator)
+        }
+    }
+
+    fn lower(&self, allocator: &mut A) {
+        if let Some(core) = self.core.upgrade() {
+            core.lower(self.code, allocator)
+        }
     }
 }

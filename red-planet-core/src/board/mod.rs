@@ -3,7 +3,9 @@
 mod system_bus;
 
 use crate::bus::Bus;
-use crate::core::Core;
+use crate::core::clint::{Clint, MTIMECMP_ADDR_HI, MTIME_ADDR_HI};
+use crate::core::{Core, Interrupt};
+use crate::resources::plic::Plic;
 use crate::resources::ram::Ram;
 use crate::resources::rom::Rom;
 use crate::resources::uart::Uart;
@@ -45,7 +47,7 @@ impl Default for Config {
 #[derive(Debug)]
 pub struct Board<A: Allocator> {
     /// The single core of this board. Multiprocessing is not supported.
-    core: Core<A, Interconnect<A>>,
+    core: Rc<Core<A, Interconnect<A>>>,
     system_bus: Rc<SystemBus<A>>,
 }
 
@@ -54,6 +56,8 @@ impl<A: Allocator> Board<A> {
         let memory_map = two_way_addr_map! {
             [0x0000_1000, 0x0000_FFFF] <=> Resource::Mrom,
             [0x0010_0000, 0x0010_0003] <=> Resource::PowerDown,
+            [0x0200_0000, 0x0200_FFFF] <=> Resource::Clint,
+            [0x0C00_0000, 0x0C20_0FFF] <=> Resource::Plic,
             [0x1000_0000, 0x1000_00FF] <=> Resource::Uart0,
             [0x2000_0000, 0x23FF_FFFF] <=> Resource::Flash,
             [0x8000_0000, 0xFFFF_FFFF] <=> Resource::Dram,
@@ -83,40 +87,55 @@ impl<A: Allocator> Board<A> {
             ]
         };
 
-        let mrom = Rom::new(allocator, mrom_range.size().unwrap(), &reset_vector).unwrap();
+        let core = Rc::new_cyclic(|weak| {
+            let mrom = Rom::new(allocator, mrom_range.size().unwrap(), &reset_vector).unwrap();
 
-        let flash = Rom::new(allocator, flash_range.size().unwrap(), &config.flash).unwrap();
+            let callback = Core::get_irq_callback(weak.clone(), Interrupt::MachineTimerInterrupt);
+            let clint = Clint::new(allocator, callback);
 
-        let dram = Ram::new(allocator, dram_range.size().unwrap()).unwrap();
+            let callback =
+                Core::get_irq_callback(weak.clone(), Interrupt::MachineExternalInterrupt);
+            let plic = Plic::new(allocator, callback);
 
-        let uart0 = Uart::new(allocator);
+            let flash = Rom::new(allocator, flash_range.size().unwrap(), &config.flash).unwrap();
 
-        let power_down = PowerDown::new(allocator);
+            let dram = Ram::new(allocator, dram_range.size().unwrap()).unwrap();
 
-        let system_bus = Rc::new(SystemBus {
-            memory_map,
-            mrom,
-            uart0,
-            flash,
-            dram,
-            power_down,
+            let power_down = PowerDown::new(allocator);
+
+            let system_bus = Rc::new_cyclic(|weak_bus| {
+                let callback = SystemBus::get_plic_irq_callback(weak_bus.clone(), 3);
+                let uart0 = Uart::new(allocator, callback);
+
+                SystemBus {
+                    memory_map,
+                    mrom,
+                    clint,
+                    plic,
+                    uart0,
+                    flash,
+                    dram,
+                    power_down,
+                }
+            });
+
+            Core::new(
+                allocator,
+                Rc::clone(&system_bus),
+                crate::core::Config {
+                    // At least one Hart must have ID 0 according to the spec.
+                    hart_id: 0,
+                    mtime_address: MTIME_ADDR_HI,
+                    mtimecmp_address: MTIMECMP_ADDR_HI,
+                    support_misaligned_memory_access: true,
+                    reset_vector: mrom_range.start(),
+                    // TODO: Research what address QEMU virt uses for this.
+                    nmi_vector: mrom_range.start(),
+                },
+            )
         });
 
-        let core = Core::new(
-            allocator,
-            Rc::clone(&system_bus),
-            crate::core::Config {
-                // At least one Hart must have ID 0 according to the spec.
-                hart_id: 0,
-                // TODO: Get these addresses from the CLINT.
-                mtime_address: 0x2000_7ff8,
-                mtimecmp_address: 0x2000_0000,
-                support_misaligned_memory_access: true,
-                reset_vector: mrom_range.start(),
-                // TODO: Research what address QEMU virt uses for this.
-                nmi_vector: mrom_range.start(),
-            },
-        );
+        let system_bus = core.system_bus().clone();
 
         Self { core, system_bus }
     }
@@ -185,6 +204,8 @@ impl<A: Allocator> Board<A> {
                 Resource::Flash => {}
                 // Skip MMIO
                 Resource::Uart0 => {}
+                Resource::Clint => {}
+                Resource::Plic => {}
                 Resource::PowerDown => {}
             }
         }
@@ -193,11 +214,16 @@ impl<A: Allocator> Board<A> {
 
 impl<A: Allocator> Simulatable<A> for Board<A> {
     fn tick(&self, allocator: &mut A) {
-        self.core.step(allocator)
+        self.core.step(allocator);
+        self.system_bus.clint.step(allocator);
     }
 
     fn drop(self, allocator: &mut A) {
-        self.core.drop(allocator);
+        // Unwrap safety: There should only be weak ptr's to the `core`.
+        Rc::into_inner(self.core).unwrap().drop(allocator);
+
+        // Unwrap safety: `core` is the only other owner and it has been drop in the line above.
+        Rc::into_inner(self.system_bus).unwrap().drop(allocator);
     }
 }
 
