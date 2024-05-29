@@ -65,15 +65,12 @@ impl<A: Allocator> Clint<A> {
     ///
     /// mtime will be set to 0, mtimecmp will not be changed.
     pub fn reset(&self, allocator: &mut A) {
-        allocator.get_mut(self.state).unwrap().mtime = 0;
+        self.update(allocator, |state| state.mtime = 0);
     }
 
     pub fn step(&self, allocator: &mut A) {
         // TODO: Use some sort of external time to be independent of execution speed
-        let mtime = &mut allocator.get_mut(self.state).unwrap().mtime;
-        *mtime = mtime.wrapping_add(1);
-
-        self.check_for_interrupt(allocator);
+        self.update(allocator, |state| state.mtime = state.mtime.wrapping_add(1));
     }
 
     pub fn drop(self, allocator: &mut A) {
@@ -93,37 +90,17 @@ impl<A: Allocator> Clint<A> {
         }
     }
 
-    fn check_for_interrupt(&self, allocator: &mut A) {
-        match allocator.get(self.state).unwrap().needs_interrupt() {
-            true => self.interrupt_callback.raise(allocator),
-            false => self.interrupt_callback.lower(allocator),
-        }
-    }
-
     /// Write an u32 to the mmio registers.
     ///
     /// Only 4 byte aligned values will work
     fn write_u32(&self, allocator: &mut A, address: u32, value: u32) {
         match address {
-            MTIMECMP_ADDR_HI => allocator
-                .get_mut(self.state)
-                .unwrap()
-                .set_mtimecmp_higher(value),
-            MTIMECMP_ADDR_LO => allocator
-                .get_mut(self.state)
-                .unwrap()
-                .set_mtimecmp_lower(value),
-            MTIME_ADDR_HI => allocator
-                .get_mut(self.state)
-                .unwrap()
-                .set_mtime_higher(value),
-            MTIME_ADDR_LO => allocator
-                .get_mut(self.state)
-                .unwrap()
-                .set_mtime_lower(value),
-            _ => return,
+            MTIMECMP_ADDR_HI => self.update(allocator, |state| state.set_mtimecmp_higher(value)),
+            MTIMECMP_ADDR_LO => self.update(allocator, |state| state.set_mtimecmp_lower(value)),
+            MTIME_ADDR_HI => self.update(allocator, |state| state.set_mtime_higher(value)),
+            MTIME_ADDR_LO => self.update(allocator, |state| state.set_mtime_lower(value)),
+            _ => {}
         }
-        self.check_for_interrupt(allocator);
     }
 
     /// Write an u64 to the mmio registers.
@@ -131,11 +108,10 @@ impl<A: Allocator> Clint<A> {
     /// Only 8 byte aligned values will work
     fn write_u64(&self, allocator: &mut A, address: u32, value: u64) {
         match address {
-            MTIMECMP_ADDR_HI => allocator.get_mut(self.state).unwrap().mtimecmp = value,
-            MTIME_ADDR_HI => allocator.get_mut(self.state).unwrap().mtime = value,
-            _ => return,
+            MTIMECMP_ADDR_HI => self.update(allocator, |state| state.mtimecmp = value),
+            MTIME_ADDR_HI => self.update(allocator, |state| state.mtime = value),
+            _ => {}
         }
-        self.check_for_interrupt(allocator);
     }
 
     pub fn read(&self, buf: &mut [u8], allocator: &A, address: u32) {
@@ -171,6 +147,18 @@ impl<A: Allocator> Clint<A> {
                     u64::from_le_bytes([*a, *b, *c, *d, *e, *f, *g, *h]),
                 );
             }
+            _ => {}
+        }
+    }
+
+    fn update(&self, allocator: &mut A, op: impl FnOnce(&mut State)) {
+        let state = allocator.get_mut(self.state).unwrap();
+        let irq_before = state.needs_interrupt();
+        op(state);
+        let irq_after = state.needs_interrupt();
+        match (irq_before, irq_after) {
+            (true, false) => self.interrupt_callback.lower(allocator),
+            (false, true) => self.interrupt_callback.raise(allocator),
             _ => {}
         }
     }

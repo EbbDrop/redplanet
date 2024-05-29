@@ -29,7 +29,7 @@ pub struct Plic<A: Allocator> {
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 struct State {
-    prioritys: [u32; 53],
+    priorities: [u32; 53],
     pending: BitArr!(for 53, in u32, Msb0),
     enabled: BitArr!(for 53, in u32, Msb0),
     priority_threshold: u32,
@@ -38,7 +38,7 @@ struct State {
 impl State {
     fn new() -> Self {
         Self {
-            prioritys: [0; 53],
+            priorities: [0; 53],
             pending: BitArray::ZERO,
             enabled: BitArray::ZERO,
             priority_threshold: 0,
@@ -54,7 +54,7 @@ impl State {
     }
 
     fn set_priority(&mut self, index: usize, value: u32) {
-        self.prioritys[index] = value.min(7);
+        self.priorities[index] = value.min(7);
     }
 
     fn set_priority_threshold(&mut self, value: u32) {
@@ -64,7 +64,7 @@ impl State {
     /// Returns 0 if no interrupts are pending
     fn highest_priority_pending(&self) -> u32 {
         let Some((idx, priority)) = self
-            .prioritys
+            .priorities
             .iter()
             .enumerate()
             .zip(self.pending)
@@ -137,7 +137,7 @@ impl<A: Allocator> Plic<A> {
     }
 
     pub fn reset(&self, allocator: &mut A) {
-        *allocator.get_mut(self.state).unwrap() = State::new();
+        self.update(allocator, |state| *state = State::new());
     }
 
     pub fn drop(self, allocator: &mut A) {
@@ -145,18 +145,11 @@ impl<A: Allocator> Plic<A> {
     }
 
     pub fn raise(&self, allocator: &mut A, index: u8) {
-        allocator.get_mut(self.state).unwrap().set_pending(index)
+        self.update(allocator, |state| state.set_pending(index));
     }
 
     pub fn lower(&self, _allocator: &mut A, _index: u8) {
         // The PLIC ignores lowers explicitly
-    }
-
-    fn check_for_interrupt(&self, allocator: &mut A) {
-        match allocator.get(self.state).unwrap().needs_interrupt() {
-            true => self.interrupt_callback.raise(allocator),
-            false => self.interrupt_callback.lower(allocator),
-        }
     }
 
     fn read_u32(&self, allocator: &mut A, address: u32) -> u32 {
@@ -164,7 +157,7 @@ impl<A: Allocator> Plic<A> {
             return 0;
         };
         match address {
-            AddrAccessor::Priorities(i) => allocator.get(self.state).unwrap().prioritys[i],
+            AddrAccessor::Priorities(i) => allocator.get(self.state).unwrap().priorities[i],
             AddrAccessor::Enabled(i) => {
                 allocator.get(self.state).unwrap().enabled.as_raw_slice()[i]
             }
@@ -173,12 +166,7 @@ impl<A: Allocator> Plic<A> {
             }
             AddrAccessor::Threshold => allocator.get(self.state).unwrap().priority_threshold,
             AddrAccessor::ClaimComplete => {
-                let claim = allocator
-                    .get_mut(self.state)
-                    .unwrap()
-                    .claim_highest_priority_pending();
-                self.check_for_interrupt(allocator);
-                claim
+                self.update(allocator, |state| state.claim_highest_priority_pending())
             }
         }
     }
@@ -189,7 +177,7 @@ impl<A: Allocator> Plic<A> {
         };
         let state = allocator.get(self.state).unwrap();
         match address {
-            AddrAccessor::Priorities(i) => state.prioritys[i],
+            AddrAccessor::Priorities(i) => state.priorities[i],
             AddrAccessor::Enabled(i) => state.enabled.as_raw_slice()[i],
             AddrAccessor::Pending(i) => state.pending.as_raw_slice()[i],
             AddrAccessor::Threshold => state.priority_threshold,
@@ -201,8 +189,7 @@ impl<A: Allocator> Plic<A> {
         let Some(address) = AddrAccessor::from_address(address) else {
             return;
         };
-        let state = allocator.get_mut(self.state).unwrap();
-        match address {
+        self.update(allocator, |state| match address {
             AddrAccessor::Priorities(i) => state.set_priority(i, value),
             AddrAccessor::Enabled(i) => {
                 let value = if i == 0 { value & 0x8000_0000 } else { value };
@@ -218,8 +205,20 @@ impl<A: Allocator> Plic<A> {
                     state.set_complete(value as u8)
                 }
             }
+        });
+    }
+
+    fn update<R>(&self, allocator: &mut A, op: impl FnOnce(&mut State) -> R) -> R {
+        let state = allocator.get_mut(self.state).unwrap();
+        let irq_before = state.needs_interrupt();
+        let res = op(state);
+        let irq_after = state.needs_interrupt();
+        match (irq_before, irq_after) {
+            (true, false) => self.interrupt_callback.lower(allocator),
+            (false, true) => self.interrupt_callback.raise(allocator),
+            _ => {}
         }
-        self.check_for_interrupt(allocator);
+        res
     }
 }
 
