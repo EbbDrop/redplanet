@@ -5,5 +5,9 @@ edition = "2021"
 
 [dependencies]
 clap = { version = "4.5.4", features = ["derive"] }
+gdbstub = "0.7.1"
+gdbstub_arch = "0.3.0"
+goblin = "0.8.2"
+log = "0.4.21"
 red-planet-core = { path = "../red-planet-core" }
 stderrlog = "0.6.0"

@@ -124,6 +124,36 @@ impl<'c, A: Allocator, B: SystemBus<A>> Mmu<'c, A, B> {
             .map(|()| u32::from_le_bytes(buf))
     }
 
+    pub fn read_range(
+        &self,
+        buf: &mut [u8],
+        allocator: &mut A,
+        address: u32,
+    ) -> Result<(), MemoryError> {
+        let privilege_level = self.core.privilege_mode(allocator);
+        self.read_debug(buf, allocator, address, privilege_level, false)
+    }
+
+    pub fn read_range_debug(
+        &self,
+        buf: &mut [u8],
+        allocator: &A,
+        address: u32,
+    ) -> Result<(), MemoryError> {
+        let privilege_level = self.core.privilege_mode(allocator);
+        self.read_debug(buf, allocator, address, privilege_level, false)
+    }
+
+    pub fn write_range(
+        &self,
+        allocator: &mut A,
+        address: u32,
+        buf: &[u8],
+    ) -> Result<(), MemoryError> {
+        let privilege_level = self.core.privilege_mode(allocator);
+        self.write(allocator, address, buf, privilege_level)
+    }
+
     fn read(
         &self,
         buf: &mut [u8],

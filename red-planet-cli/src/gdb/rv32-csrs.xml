@@ -1,0 +1,322 @@
+<?xml version="1.0"?>
+<!DOCTYPE target SYSTEM "gdb-target.dtd">
+<target>
+  <architecture>riscv:rv32</architecture>
+  <feature name="org.gnu.gdb.riscv.cpu">
+    <reg name="zero" bitsize="32" type="int" regnum="0"/>
+    <reg name="ra" bitsize="32" type="code_ptr" regnum="1"/>
+    <reg name="sp" bitsize="32" type="data_ptr" regnum="2"/>
+    <reg name="gp" bitsize="32" type="data_ptr" regnum="3"/>
+    <reg name="tp" bitsize="32" type="data_ptr" regnum="4"/>
+    <reg name="t0" bitsize="32" type="int" regnum="5"/>
+    <reg name="t1" bitsize="32" type="int" regnum="6"/>
+    <reg name="t2" bitsize="32" type="int" regnum="7"/>
+    <reg name="fp" bitsize="32" type="data_ptr" regnum="8"/>
+    <reg name="s1" bitsize="32" type="int" regnum="9"/>
+    <reg name="a0" bitsize="32" type="int" regnum="10"/>
+    <reg name="a1" bitsize="32" type="int" regnum="11"/>
+    <reg name="a2" bitsize="32" type="int" regnum="12"/>
+    <reg name="a3" bitsize="32" type="int" regnum="13"/>
+    <reg name="a4" bitsize="32" type="int" regnum="14"/>
+    <reg name="a5" bitsize="32" type="int" regnum="15"/>
+    <reg name="a6" bitsize="32" type="int" regnum="16"/>
+    <reg name="a7" bitsize="32" type="int" regnum="17"/>
+    <reg name="s2" bitsize="32" type="int" regnum="18"/>
+    <reg name="s3" bitsize="32" type="int" regnum="19"/>
+    <reg name="s4" bitsize="32" type="int" regnum="20"/>
+    <reg name="s5" bitsize="32" type="int" regnum="21"/>
+    <reg name="s6" bitsize="32" type="int" regnum="22"/>
+    <reg name="s7" bitsize="32" type="int" regnum="23"/>
+    <reg name="s8" bitsize="32" type="int" regnum="24"/>
+    <reg name="s9" bitsize="32" type="int" regnum="25"/>
+    <reg name="s10" bitsize="32" type="int" regnum="26"/>
+    <reg name="s11" bitsize="32" type="int" regnum="27"/>
+    <reg name="t3" bitsize="32" type="int" regnum="28"/>
+    <reg name="t4" bitsize="32" type="int" regnum="29"/>
+    <reg name="t5" bitsize="32" type="int" regnum="30"/>
+    <reg name="t6" bitsize="32" type="int" regnum="31"/>
+    <reg name="pc" bitsize="32" type="code_ptr" regnum="32"/>
+  </feature>
+  <feature name="org.gnu.gdb.riscv.csr">
+    <reg name="fflags" bitsize="32" type="int" regnum="66" />
+    <reg name="frm" bitsize="32" type="int" regnum="67" />
+    <reg name="fcsr" bitsize="32" type="int" regnum="68" />
+    <reg name="cycle" bitsize="32" type="int" regnum="3137" />
+    <reg name="time" bitsize="32" type="int" regnum="3138" />
+    <reg name="instret" bitsize="32" type="int" regnum="3139" />
+    <reg name="hpmcounter3" bitsize="32" type="int" regnum="3140" />
+    <reg name="hpmcounter4" bitsize="32" type="int" regnum="3141" />
+    <reg name="hpmcounter5" bitsize="32" type="int" regnum="3142" />
+    <reg name="hpmcounter6" bitsize="32" type="int" regnum="3143" />
+    <reg name="hpmcounter7" bitsize="32" type="int" regnum="3144" />
+    <reg name="hpmcounter8" bitsize="32" type="int" regnum="3145" />
+    <reg name="hpmcounter9" bitsize="32" type="int" regnum="3146" />
+    <reg name="hpmcounter10" bitsize="32" type="int" regnum="3147" />
+    <reg name="hpmcounter11" bitsize="32" type="int" regnum="3148" />
+    <reg name="hpmcounter12" bitsize="32" type="int" regnum="3149" />
+    <reg name="hpmcounter13" bitsize="32" type="int" regnum="3150" />
+    <reg name="hpmcounter14" bitsize="32" type="int" regnum="3151" />
+    <reg name="hpmcounter15" bitsize="32" type="int" regnum="3152" />
+    <reg name="hpmcounter16" bitsize="32" type="int" regnum="3153" />
+    <reg name="hpmcounter17" bitsize="32" type="int" regnum="3154" />
+    <reg name="hpmcounter18" bitsize="32" type="int" regnum="3155" />
+    <reg name="hpmcounter19" bitsize="32" type="int" regnum="3156" />
+    <reg name="hpmcounter20" bitsize="32" type="int" regnum="3157" />
+    <reg name="hpmcounter21" bitsize="32" type="int" regnum="3158" />
+    <reg name="hpmcounter22" bitsize="32" type="int" regnum="3159" />
+    <reg name="hpmcounter23" bitsize="32" type="int" regnum="3160" />
+    <reg name="hpmcounter24" bitsize="32" type="int" regnum="3161" />
+    <reg name="hpmcounter25" bitsize="32" type="int" regnum="3162" />
+    <reg name="hpmcounter26" bitsize="32" type="int" regnum="3163" />
+    <reg name="hpmcounter27" bitsize="32" type="int" regnum="3164" />
+    <reg name="hpmcounter28" bitsize="32" type="int" regnum="3165" />
+    <reg name="hpmcounter29" bitsize="32" type="int" regnum="3166" />
+    <reg name="hpmcounter30" bitsize="32" type="int" regnum="3167" />
+    <reg name="hpmcounter31" bitsize="32" type="int" regnum="3168" />
+    <reg name="cycleh" bitsize="32" type="int" regnum="3265" />
+    <reg name="timeh" bitsize="32" type="int" regnum="3266" />
+    <reg name="instreth" bitsize="32" type="int" regnum="3267" />
+    <reg name="hpmcounter3h" bitsize="32" type="int" regnum="3268" />
+    <reg name="hpmcounter4h" bitsize="32" type="int" regnum="3269" />
+    <reg name="hpmcounter5h" bitsize="32" type="int" regnum="3270" />
+    <reg name="hpmcounter6h" bitsize="32" type="int" regnum="3271" />
+    <reg name="hpmcounter7h" bitsize="32" type="int" regnum="3272" />
+    <reg name="hpmcounter8h" bitsize="32" type="int" regnum="3273" />
+    <reg name="hpmcounter9h" bitsize="32" type="int" regnum="3274" />
+    <reg name="hpmcounter10h" bitsize="32" type="int" regnum="3275" />
+    <reg name="hpmcounter11h" bitsize="32" type="int" regnum="3276" />
+    <reg name="hpmcounter12h" bitsize="32" type="int" regnum="3277" />
+    <reg name="hpmcounter13h" bitsize="32" type="int" regnum="3278" />
+    <reg name="hpmcounter14h" bitsize="32" type="int" regnum="3279" />
+    <reg name="hpmcounter15h" bitsize="32" type="int" regnum="3280" />
+    <reg name="hpmcounter16h" bitsize="32" type="int" regnum="3281" />
+    <reg name="hpmcounter17h" bitsize="32" type="int" regnum="3282" />
+    <reg name="hpmcounter18h" bitsize="32" type="int" regnum="3283" />
+    <reg name="hpmcounter19h" bitsize="32" type="int" regnum="3284" />
+    <reg name="hpmcounter20h" bitsize="32" type="int" regnum="3285" />
+    <reg name="hpmcounter21h" bitsize="32" type="int" regnum="3286" />
+    <reg name="hpmcounter22h" bitsize="32" type="int" regnum="3287" />
+    <reg name="hpmcounter23h" bitsize="32" type="int" regnum="3288" />
+    <reg name="hpmcounter24h" bitsize="32" type="int" regnum="3289" />
+    <reg name="hpmcounter25h" bitsize="32" type="int" regnum="3290" />
+    <reg name="hpmcounter26h" bitsize="32" type="int" regnum="3291" />
+    <reg name="hpmcounter27h" bitsize="32" type="int" regnum="3292" />
+    <reg name="hpmcounter28h" bitsize="32" type="int" regnum="3293" />
+    <reg name="hpmcounter29h" bitsize="32" type="int" regnum="3294" />
+    <reg name="hpmcounter30h" bitsize="32" type="int" regnum="3295" />
+    <reg name="hpmcounter31h" bitsize="32" type="int" regnum="3296" />
+    <reg name="sstatus" bitsize="32" type="int" regnum="321" />
+    <reg name="sie" bitsize="32" type="int" regnum="325" />
+    <reg name="stvec" bitsize="32" type="int" regnum="326" />
+    <reg name="scounteren" bitsize="32" type="int" regnum="327" />
+    <reg name="senvcfg" bitsize="32" type="int" regnum="331" />
+    <reg name="sscratch" bitsize="32" type="int" regnum="385" />
+    <reg name="sepc" bitsize="32" type="int" regnum="386" />
+    <reg name="scause" bitsize="32" type="int" regnum="387" />
+    <reg name="stval" bitsize="32" type="int" regnum="388" />
+    <reg name="sip" bitsize="32" type="int" regnum="389" />
+    <reg name="satp" bitsize="32" type="int" regnum="449" />
+    <reg name="scontext" bitsize="32" type="int" regnum="1513" />
+    <reg name="mvendorid" bitsize="32" type="int" regnum="3922" />
+    <reg name="marchid" bitsize="32" type="int" regnum="3923" />
+    <reg name="mimpid" bitsize="32" type="int" regnum="3924" />
+    <reg name="mhartid" bitsize="32" type="int" regnum="3925" />
+    <reg name="mconfigptr" bitsize="32" type="int" regnum="3926" />
+    <reg name="mstatus" bitsize="32" type="int" regnum="833" />
+    <reg name="misa" bitsize="32" type="int" regnum="834" />
+    <reg name="medeleg" bitsize="32" type="int" regnum="835" />
+    <reg name="mideleg" bitsize="32" type="int" regnum="836" />
+    <reg name="mie" bitsize="32" type="int" regnum="837" />
+    <reg name="mtvec" bitsize="32" type="int" regnum="838" />
+    <reg name="mcounteren" bitsize="32" type="int" regnum="839" />
+    <reg name="mstatush" bitsize="32" type="int" regnum="849" />
+    <reg name="mscratch" bitsize="32" type="int" regnum="897" />
+    <reg name="mepc" bitsize="32" type="int" regnum="898" />
+    <reg name="mcause" bitsize="32" type="int" regnum="899" />
+    <reg name="mtval" bitsize="32" type="int" regnum="900" />
+    <reg name="mip" bitsize="32" type="int" regnum="901" />
+    <reg name="mtinst" bitsize="32" type="int" regnum="907" />
+    <reg name="mtval2" bitsize="32" type="int" regnum="908" />
+    <reg name="menvcfg" bitsize="32" type="int" regnum="843" />
+    <reg name="menvcfgh" bitsize="32" type="int" regnum="859" />
+    <reg name="mseccfg" bitsize="32" type="int" regnum="1928" />
+    <reg name="mseccfgh" bitsize="32" type="int" regnum="1944" />
+    <reg name="pmpcfg0" bitsize="32" type="int" regnum="993" />
+    <reg name="pmpcfg1" bitsize="32" type="int" regnum="994" />
+    <reg name="pmpcfg2" bitsize="32" type="int" regnum="995" />
+    <reg name="pmpcfg3" bitsize="32" type="int" regnum="996" />
+    <reg name="pmpcfg4" bitsize="32" type="int" regnum="997" />
+    <reg name="pmpcfg5" bitsize="32" type="int" regnum="998" />
+    <reg name="pmpcfg6" bitsize="32" type="int" regnum="999" />
+    <reg name="pmpcfg7" bitsize="32" type="int" regnum="1000" />
+    <reg name="pmpcfg8" bitsize="32" type="int" regnum="1001" />
+    <reg name="pmpcfg9" bitsize="32" type="int" regnum="1002" />
+    <reg name="pmpcfg10" bitsize="32" type="int" regnum="1003" />
+    <reg name="pmpcfg11" bitsize="32" type="int" regnum="1004" />
+    <reg name="pmpcfg12" bitsize="32" type="int" regnum="1005" />
+    <reg name="pmpcfg13" bitsize="32" type="int" regnum="1006" />
+    <reg name="pmpcfg14" bitsize="32" type="int" regnum="1007" />
+    <reg name="pmpcfg15" bitsize="32" type="int" regnum="1008" />
+    <reg name="pmpaddr0" bitsize="32" type="int" regnum="1009" />
+    <reg name="pmpaddr1" bitsize="32" type="int" regnum="1010" />
+    <reg name="pmpaddr2" bitsize="32" type="int" regnum="1011" />
+    <reg name="pmpaddr3" bitsize="32" type="int" regnum="1012" />
+    <reg name="pmpaddr4" bitsize="32" type="int" regnum="1013" />
+    <reg name="pmpaddr5" bitsize="32" type="int" regnum="1014" />
+    <reg name="pmpaddr6" bitsize="32" type="int" regnum="1015" />
+    <reg name="pmpaddr7" bitsize="32" type="int" regnum="1016" />
+    <reg name="pmpaddr8" bitsize="32" type="int" regnum="1017" />
+    <reg name="pmpaddr9" bitsize="32" type="int" regnum="1018" />
+    <reg name="pmpaddr10" bitsize="32" type="int" regnum="1019" />
+    <reg name="pmpaddr11" bitsize="32" type="int" regnum="1020" />
+    <reg name="pmpaddr12" bitsize="32" type="int" regnum="1021" />
+    <reg name="pmpaddr13" bitsize="32" type="int" regnum="1022" />
+    <reg name="pmpaddr14" bitsize="32" type="int" regnum="1023" />
+    <reg name="pmpaddr15" bitsize="32" type="int" regnum="1024" />
+    <reg name="pmpaddr16" bitsize="32" type="int" regnum="1025" />
+    <reg name="pmpaddr17" bitsize="32" type="int" regnum="1026" />
+    <reg name="pmpaddr18" bitsize="32" type="int" regnum="1027" />
+    <reg name="pmpaddr19" bitsize="32" type="int" regnum="1028" />
+    <reg name="pmpaddr20" bitsize="32" type="int" regnum="1029" />
+    <reg name="pmpaddr21" bitsize="32" type="int" regnum="1030" />
+    <reg name="pmpaddr22" bitsize="32" type="int" regnum="1031" />
+    <reg name="pmpaddr23" bitsize="32" type="int" regnum="1032" />
+    <reg name="pmpaddr24" bitsize="32" type="int" regnum="1033" />
+    <reg name="pmpaddr25" bitsize="32" type="int" regnum="1034" />
+    <reg name="pmpaddr26" bitsize="32" type="int" regnum="1035" />
+    <reg name="pmpaddr27" bitsize="32" type="int" regnum="1036" />
+    <reg name="pmpaddr28" bitsize="32" type="int" regnum="1037" />
+    <reg name="pmpaddr29" bitsize="32" type="int" regnum="1038" />
+    <reg name="pmpaddr30" bitsize="32" type="int" regnum="1039" />
+    <reg name="pmpaddr31" bitsize="32" type="int" regnum="1040" />
+    <reg name="pmpaddr32" bitsize="32" type="int" regnum="1041" />
+    <reg name="pmpaddr33" bitsize="32" type="int" regnum="1042" />
+    <reg name="pmpaddr34" bitsize="32" type="int" regnum="1043" />
+    <reg name="pmpaddr35" bitsize="32" type="int" regnum="1044" />
+    <reg name="pmpaddr36" bitsize="32" type="int" regnum="1045" />
+    <reg name="pmpaddr37" bitsize="32" type="int" regnum="1046" />
+    <reg name="pmpaddr38" bitsize="32" type="int" regnum="1047" />
+    <reg name="pmpaddr39" bitsize="32" type="int" regnum="1048" />
+    <reg name="pmpaddr40" bitsize="32" type="int" regnum="1049" />
+    <reg name="pmpaddr41" bitsize="32" type="int" regnum="1050" />
+    <reg name="pmpaddr42" bitsize="32" type="int" regnum="1051" />
+    <reg name="pmpaddr43" bitsize="32" type="int" regnum="1052" />
+    <reg name="pmpaddr44" bitsize="32" type="int" regnum="1053" />
+    <reg name="pmpaddr45" bitsize="32" type="int" regnum="1054" />
+    <reg name="pmpaddr46" bitsize="32" type="int" regnum="1055" />
+    <reg name="pmpaddr47" bitsize="32" type="int" regnum="1056" />
+    <reg name="pmpaddr48" bitsize="32" type="int" regnum="1057" />
+    <reg name="pmpaddr49" bitsize="32" type="int" regnum="1058" />
+    <reg name="pmpaddr50" bitsize="32" type="int" regnum="1059" />
+    <reg name="pmpaddr51" bitsize="32" type="int" regnum="1060" />
+    <reg name="pmpaddr52" bitsize="32" type="int" regnum="1061" />
+    <reg name="pmpaddr53" bitsize="32" type="int" regnum="1062" />
+    <reg name="pmpaddr54" bitsize="32" type="int" regnum="1063" />
+    <reg name="pmpaddr55" bitsize="32" type="int" regnum="1064" />
+    <reg name="pmpaddr56" bitsize="32" type="int" regnum="1065" />
+    <reg name="pmpaddr57" bitsize="32" type="int" regnum="1066" />
+    <reg name="pmpaddr58" bitsize="32" type="int" regnum="1067" />
+    <reg name="pmpaddr59" bitsize="32" type="int" regnum="1068" />
+    <reg name="pmpaddr60" bitsize="32" type="int" regnum="1069" />
+    <reg name="pmpaddr61" bitsize="32" type="int" regnum="1070" />
+    <reg name="pmpaddr62" bitsize="32" type="int" regnum="1071" />
+    <reg name="pmpaddr63" bitsize="32" type="int" regnum="1072" />
+    <reg name="mcycle" bitsize="32" type="int" regnum="2881" />
+    <reg name="minstret" bitsize="32" type="int" regnum="2883" />
+    <reg name="mhpmcounter3" bitsize="32" type="int" regnum="2884" />
+    <reg name="mhpmcounter4" bitsize="32" type="int" regnum="2885" />
+    <reg name="mhpmcounter5" bitsize="32" type="int" regnum="2886" />
+    <reg name="mhpmcounter6" bitsize="32" type="int" regnum="2887" />
+    <reg name="mhpmcounter7" bitsize="32" type="int" regnum="2888" />
+    <reg name="mhpmcounter8" bitsize="32" type="int" regnum="2889" />
+    <reg name="mhpmcounter9" bitsize="32" type="int" regnum="2890" />
+    <reg name="mhpmcounter10" bitsize="32" type="int" regnum="2891" />
+    <reg name="mhpmcounter11" bitsize="32" type="int" regnum="2892" />
+    <reg name="mhpmcounter12" bitsize="32" type="int" regnum="2893" />
+    <reg name="mhpmcounter13" bitsize="32" type="int" regnum="2894" />
+    <reg name="mhpmcounter14" bitsize="32" type="int" regnum="2895" />
+    <reg name="mhpmcounter15" bitsize="32" type="int" regnum="2896" />
+    <reg name="mhpmcounter16" bitsize="32" type="int" regnum="2897" />
+    <reg name="mhpmcounter17" bitsize="32" type="int" regnum="2898" />
+    <reg name="mhpmcounter18" bitsize="32" type="int" regnum="2899" />
+    <reg name="mhpmcounter19" bitsize="32" type="int" regnum="2900" />
+    <reg name="mhpmcounter20" bitsize="32" type="int" regnum="2901" />
+    <reg name="mhpmcounter21" bitsize="32" type="int" regnum="2902" />
+    <reg name="mhpmcounter22" bitsize="32" type="int" regnum="2903" />
+    <reg name="mhpmcounter23" bitsize="32" type="int" regnum="2904" />
+    <reg name="mhpmcounter24" bitsize="32" type="int" regnum="2905" />
+    <reg name="mhpmcounter25" bitsize="32" type="int" regnum="2906" />
+    <reg name="mhpmcounter26" bitsize="32" type="int" regnum="2907" />
+    <reg name="mhpmcounter27" bitsize="32" type="int" regnum="2908" />
+    <reg name="mhpmcounter28" bitsize="32" type="int" regnum="2909" />
+    <reg name="mhpmcounter29" bitsize="32" type="int" regnum="2910" />
+    <reg name="mhpmcounter30" bitsize="32" type="int" regnum="2911" />
+    <reg name="mhpmcounter31" bitsize="32" type="int" regnum="2912" />
+    <reg name="mcycleh" bitsize="32" type="int" regnum="3009" />
+    <reg name="minstreth" bitsize="32" type="int" regnum="3011" />
+    <reg name="mhpmcounter3h" bitsize="32" type="int" regnum="3012" />
+    <reg name="mhpmcounter4h" bitsize="32" type="int" regnum="3013" />
+    <reg name="mhpmcounter5h" bitsize="32" type="int" regnum="3014" />
+    <reg name="mhpmcounter6h" bitsize="32" type="int" regnum="3015" />
+    <reg name="mhpmcounter7h" bitsize="32" type="int" regnum="3016" />
+    <reg name="mhpmcounter8h" bitsize="32" type="int" regnum="3017" />
+    <reg name="mhpmcounter9h" bitsize="32" type="int" regnum="3018" />
+    <reg name="mhpmcounter10h" bitsize="32" type="int" regnum="3019" />
+    <reg name="mhpmcounter11h" bitsize="32" type="int" regnum="3020" />
+    <reg name="mhpmcounter12h" bitsize="32" type="int" regnum="3021" />
+    <reg name="mhpmcounter13h" bitsize="32" type="int" regnum="3022" />
+    <reg name="mhpmcounter14h" bitsize="32" type="int" regnum="3023" />
+    <reg name="mhpmcounter15h" bitsize="32" type="int" regnum="3024" />
+    <reg name="mhpmcounter16h" bitsize="32" type="int" regnum="3025" />
+    <reg name="mhpmcounter17h" bitsize="32" type="int" regnum="3026" />
+    <reg name="mhpmcounter18h" bitsize="32" type="int" regnum="3027" />
+    <reg name="mhpmcounter19h" bitsize="32" type="int" regnum="3028" />
+    <reg name="mhpmcounter20h" bitsize="32" type="int" regnum="3029" />
+    <reg name="mhpmcounter21h" bitsize="32" type="int" regnum="3030" />
+    <reg name="mhpmcounter22h" bitsize="32" type="int" regnum="3031" />
+    <reg name="mhpmcounter23h" bitsize="32" type="int" regnum="3032" />
+    <reg name="mhpmcounter24h" bitsize="32" type="int" regnum="3033" />
+    <reg name="mhpmcounter25h" bitsize="32" type="int" regnum="3034" />
+    <reg name="mhpmcounter26h" bitsize="32" type="int" regnum="3035" />
+    <reg name="mhpmcounter27h" bitsize="32" type="int" regnum="3036" />
+    <reg name="mhpmcounter28h" bitsize="32" type="int" regnum="3037" />
+    <reg name="mhpmcounter29h" bitsize="32" type="int" regnum="3038" />
+    <reg name="mhpmcounter30h" bitsize="32" type="int" regnum="3039" />
+    <reg name="mhpmcounter31h" bitsize="32" type="int" regnum="3040" />
+    <reg name="mcountinhibit" bitsize="32" type="int" regnum="865" />
+    <reg name="mhpmevent3" bitsize="32" type="int" regnum="868" />
+    <reg name="mhpmevent4" bitsize="32" type="int" regnum="869" />
+    <reg name="mhpmevent5" bitsize="32" type="int" regnum="870" />
+    <reg name="mhpmevent6" bitsize="32" type="int" regnum="871" />
+    <reg name="mhpmevent7" bitsize="32" type="int" regnum="872" />
+    <reg name="mhpmevent8" bitsize="32" type="int" regnum="873" />
+    <reg name="mhpmevent9" bitsize="32" type="int" regnum="874" />
+    <reg name="mhpmevent10" bitsize="32" type="int" regnum="875" />
+    <reg name="mhpmevent11" bitsize="32" type="int" regnum="876" />
+    <reg name="mhpmevent12" bitsize="32" type="int" regnum="877" />
+    <reg name="mhpmevent13" bitsize="32" type="int" regnum="878" />
+    <reg name="mhpmevent14" bitsize="32" type="int" regnum="879" />
+    <reg name="mhpmevent15" bitsize="32" type="int" regnum="880" />
+    <reg name="mhpmevent16" bitsize="32" type="int" regnum="881" />
+    <reg name="mhpmevent17" bitsize="32" type="int" regnum="882" />
+    <reg name="mhpmevent18" bitsize="32" type="int" regnum="883" />
+    <reg name="mhpmevent19" bitsize="32" type="int" regnum="884" />
+    <reg name="mhpmevent20" bitsize="32" type="int" regnum="885" />
+    <reg name="mhpmevent21" bitsize="32" type="int" regnum="886" />
+    <reg name="mhpmevent22" bitsize="32" type="int" regnum="887" />
+    <reg name="mhpmevent23" bitsize="32" type="int" regnum="888" />
+    <reg name="mhpmevent24" bitsize="32" type="int" regnum="889" />
+    <reg name="mhpmevent25" bitsize="32" type="int" regnum="890" />
+    <reg name="mhpmevent26" bitsize="32" type="int" regnum="891" />
+    <reg name="mhpmevent27" bitsize="32" type="int" regnum="892" />
+    <reg name="mhpmevent28" bitsize="32" type="int" regnum="893" />
+    <reg name="mhpmevent29" bitsize="32" type="int" regnum="894" />
+    <reg name="mhpmevent30" bitsize="32" type="int" regnum="895" />
+    <reg name="mhpmevent31" bitsize="32" type="int" regnum="896" />
+    <reg name="tselect" bitsize="32" type="int" regnum="2017" />
+    <reg name="tdata1" bitsize="32" type="int" regnum="2018" />
+    <reg name="tdata2" bitsize="32" type="int" regnum="2019" />
+    <reg name="tdata3" bitsize="32" type="int" regnum="2020" />
+    <reg name="mcontext" bitsize="32" type="int" regnum="2025" />
+  </feature>
+</target>

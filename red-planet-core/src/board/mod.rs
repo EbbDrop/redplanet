@@ -199,6 +199,10 @@ impl<A: Allocator> Board<A> {
         let memory_map = &self.system_bus.memory_map;
         let mut next_address = Some(base_address);
         while let Some(address) = next_address {
+            if (address - base_address) as usize >= buf.len() {
+                break;
+            }
+
             let (range, resource) = memory_map.range_value(address);
 
             next_address = range.end().checked_add(1);
