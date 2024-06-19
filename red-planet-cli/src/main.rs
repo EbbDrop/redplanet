@@ -12,7 +12,7 @@ mod gdb;
 mod target;
 
 use log::{debug, info};
-use target::{Event, RunEvent, SimTarget};
+use target::{Event, ExecutionMode, RunEvent, SimTarget};
 
 use clap::Parser;
 use red_planet_core::board::{Board, Config};
@@ -38,7 +38,7 @@ fn main() -> std::io::Result<()> {
     let args = Args::parse();
 
     stderrlog::new()
-        .verbosity(LogLevelNum::Trace)
+        .verbosity(LogLevelNum::Warn)
         .modules([module_path!(), "red_planet_core"])
         .init()
         .unwrap();
@@ -97,13 +97,13 @@ fn load_elf(
     Ok(())
 }
 
-fn run(mut simulator: Simulator) {
-    loop {
-        simulator.step();
-        let (allocator, board) = simulator.inspect();
-        if board.is_powered_down(allocator) {
-            break;
-        }
+fn run(simulator: Simulator) {
+    let mut target = SimTarget::new(simulator);
+    target.execution_mode = ExecutionMode::Continue;
+
+    match target.run(|| false) {
+        RunEvent::Event(e) => println!("\n\ntarget stoped: {:?}", e),
+        RunEvent::IncomingData => unreachable!(),
     }
 }
 

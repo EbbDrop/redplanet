@@ -216,7 +216,7 @@ impl<A: Allocator> Board<A> {
                     const_assert!(usize::BITS >= 32);
                     let slice_start = (address - base_address) as usize;
                     let slice_end = ((range.end() - base_address) as usize).min(buf.len() - 1);
-                    debug!(
+                    trace!(
                         "Writing buf[{slice_start:#0x}..={slice_end:#0x}] to DRAM at \
                          {address:#010x} through system bus"
                     );

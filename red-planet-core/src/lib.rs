@@ -20,7 +20,7 @@ pub mod system_bus;
 // Re-export Allocator trait so dependants don't need to include space-time as a dependency
 /// Trait for types that can store state of simulated components.
 ///
-pub use space_time::allocator::Allocator;
+pub use space_time::allocator::{Allocator, ArrayAccessor, ArrayAccessorMut};
 
 /// Re-export of [`AddressRange`] for convenience.
 pub use address_range::AddressRange;

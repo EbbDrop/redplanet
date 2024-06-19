@@ -92,7 +92,6 @@ impl State {
     }
 
     /// Returns `true` if the Data Ready indicator of the Line Status Register is `1`.
-    #[allow(unused)]
     fn lsr_dr(&self) -> bool {
         self.lsr.view_bits::<Lsb0>()[0]
     }
@@ -468,23 +467,17 @@ impl<A: Allocator> Uart<A> {
     }
 
     /// Writes up to [`Self::pending_output_amount`] bytes from `input` into the rx buffer, and
-    /// writes [`Self::pending_output_amount`] into `output`.
+    /// returns [`Self::pending_output_amount`] bytes of output.
     ///
-    /// The amount of bytes read from `input` and the amount written to `output` are returned, in
-    /// that order.
+    /// The amount of bytes read from `input` is also returned.
     ///
     /// This function is expensive to execute, even if nothing is read or written, so make sure to
     /// check [`Self::pending_output_amount`] and [`Self::pending_output_amount`] before calling
     /// this function to make sure it makes sense to do so.
-    pub fn push_and_read(
-        &self,
-        allocator: &mut A,
-        input: &[u8],
-        output: &mut [u8],
-    ) -> (usize, usize) {
+    pub fn push_and_read(&self, allocator: &mut A, input: &[u8]) -> (usize, Vec<u8>) {
         let state = allocator.get_mut(self.state).unwrap();
         if !state.is_operational() {
-            return (0, 0);
+            return (0, Vec::new());
         }
 
         let rx_buf = &mut state.rx_fifo_buf[(state.rx_fifo_len as usize)..];
@@ -495,39 +488,29 @@ impl<A: Allocator> Uart<A> {
             state.set_lsr_dr(true);
         }
 
-        let output_size = (state.tx_fifo_len as usize).min(output.len());
-        output[..output_size].copy_from_slice(&state.tx_fifo_buf[..output_size]);
-        if output_size != 0 && output_size != state.tx_fifo_len as usize {
-            state
-                .tx_fifo_buf
-                .copy_within(output_size..(state.tx_fifo_len as usize), 0);
-        }
-        state.tx_fifo_len -= output_size as u8;
+        let output_size = state.tx_fifo_len as usize;
+        let output = state.tx_fifo_buf[..output_size].to_owned();
 
-        if (state.tx_fifo_len as usize) < state.tx_fifo_buf.len() {
-            state.set_lsr_thre(true);
-        }
-        if state.tx_fifo_len == 0 {
-            state.set_lsr_tfe(true);
-        }
+        state.tx_fifo_len = 0;
+
+        state.set_lsr_thre(true);
+        state.set_lsr_tfe(true);
 
         self.update_interrupt(allocator);
 
-        (input_size, output_size)
+        (input_size, output)
     }
 }
 
 impl<A: Allocator> Bus<A> for Uart<A> {
     /// See [`Bus::read`].
     ///
-    /// Registers are mapped to 4-byte-aligned addresses. Addresses are rounded down to the
-    /// nearest 4-byte-aligned address. The address space is circular 8-bit.
+    /// The address space is circular 8-bit.
     ///
     /// Only the first byte (if `buf.len() >= 1`) will be updated. Invalid reads will cause that
     /// first byte to have an undefined value. The other bytes are always left untouched.
     fn read(&self, buf: &mut [u8], allocator: &mut A, address: u32) {
-        let address = (address >> 2) as u8;
-        match self.read(allocator, address) {
+        match self.read(allocator, address as u8) {
             Ok(value) => {
                 if let Some(out) = buf.get_mut(0) {
                     *out = value
@@ -540,14 +523,12 @@ impl<A: Allocator> Bus<A> for Uart<A> {
 
     /// See [`Bus::read_debug`].
     ///
-    /// Registers are mapped to 4-byte-aligned addresses. Addresses are rounded down to the
-    /// nearest 4-byte-aligned address. The address space is circular 8-bit.
+    /// The address space is circular 8-bit.
     ///
     /// Only the first byte (if `buf.len() >= 1`) will be updated. Invalid reads will cause that
     /// first byte to have an undefined value. The other bytes are always left untouched.
     fn read_debug(&self, buf: &mut [u8], allocator: &A, address: u32) {
-        let address = (address >> 2) as u8;
-        match self.read_pure(allocator, address) {
+        match self.read_pure(allocator, address as u8) {
             Ok(value) => {
                 if let Some(out) = buf.get_mut(0) {
                     *out = value
@@ -560,13 +541,11 @@ impl<A: Allocator> Bus<A> for Uart<A> {
 
     /// See [`Bus::write`].
     ///
-    /// Registers are mapped to 4-byte-aligned addresses. Addresses are rounded down to the
-    /// nearest 4-byte-aligned address. The address space is circular 8-bit.
+    /// The address space is circular 8-bit.
     ///
     /// Only the first byte (if `buf.len() >= 1`) is written.
     /// In case `buf.len() == 0`, the value `0x00` is used.
     fn write(&self, allocator: &mut A, address: u32, buf: &[u8]) {
-        let address = (address >> 2) as u8;
-        let _ = self.write(allocator, address, buf.first().copied().unwrap_or(0));
+        let _ = self.write(allocator, address as u8, buf.first().copied().unwrap_or(0));
     }
 }

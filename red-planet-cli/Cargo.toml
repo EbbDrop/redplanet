@@ -11,3 +11,4 @@ goblin = "0.8.2"
 log = "0.4.21"
 red-planet-core = { path = "../red-planet-core" }
 stderrlog = "0.6.0"
+crossterm = "0.27.0"
