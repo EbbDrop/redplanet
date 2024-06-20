@@ -134,6 +134,14 @@ pub enum RegRegOp {
     Srl,
     Sub,
     Sra,
+    Mul,
+    Mulh,
+    Mulhsu,
+    Mulhu,
+    Div,
+    Divu,
+    Rem,
+    Remu,
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -522,6 +530,15 @@ fn r_funct(raw_instruction: u32) -> Option<RegRegOp> {
         (0b0000000, 0b111) => Some(RegRegOp::And),
         (0b0100000, 0b000) => Some(RegRegOp::Sub),
         (0b0100000, 0b101) => Some(RegRegOp::Sra),
+        // funct7 == MULDIV
+        (0b0000001, 0b000) => Some(RegRegOp::Mul),
+        (0b0000001, 0b001) => Some(RegRegOp::Mulh),
+        (0b0000001, 0b010) => Some(RegRegOp::Mulhsu),
+        (0b0000001, 0b011) => Some(RegRegOp::Mulhu),
+        (0b0000001, 0b100) => Some(RegRegOp::Div),
+        (0b0000001, 0b101) => Some(RegRegOp::Divu),
+        (0b0000001, 0b110) => Some(RegRegOp::Rem),
+        (0b0000001, 0b111) => Some(RegRegOp::Remu),
         _ => None,
     }
 }

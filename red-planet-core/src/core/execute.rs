@@ -295,6 +295,137 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
         })
     }
 
+    /// Executes a `mul` instruction.
+    ///
+    /// Corresponds to the assembly instruction `mul dest src1 src2`.
+    ///
+    /// > MUL performs an XLEN-bit×XLEN-bit multiplication of rs1 by rs2 and places the lower XLEN
+    /// > bits in the destination register.
+    pub fn mul(&mut self, dest: Specifier, src1: Specifier, src2: Specifier) -> ExecutionResult {
+        trace!("Executing mul {dest} {src1} {src2}");
+        self.reg_reg_op(dest, src1, src2, |s1, s2| s1.wrapping_mul(s2))
+    }
+
+    /// Executes a `mulh` instruction.
+    ///
+    /// Corresponds to the assembly instruction `mulh dest src1 src2`.
+    ///
+    /// > MUL performs an XLEN-bit×XLEN-bit multiplication of rs1 by rs2 and places the lower XLEN
+    /// > bits in the destination register.
+    /// > MULH, MULHU, and MULHSU perform the same multiplication but return the upper XLEN bits of
+    /// > the full 2×XLEN-bit product, for signed×signed, unsigned×unsigned, and signed rs1×unsigned
+    /// > rs2 multiplication, respectively.
+    pub fn mulh(&mut self, dest: Specifier, src1: Specifier, src2: Specifier) -> ExecutionResult {
+        trace!("Executing mulh {dest} {src1} {src2}");
+        self.reg_reg_op(dest, src1, src2, |s1, s2| {
+            ((s1 as i32 as i64 * s2 as i32 as i64) >> 32) as u32
+        })
+    }
+
+    /// Executes a `mulhsu` instruction.
+    ///
+    /// Corresponds to the assembly instruction `mulhsu dest src1 src2`.
+    ///
+    /// > MUL performs an XLEN-bit×XLEN-bit multiplication of rs1 by rs2 and places the lower XLEN
+    /// > bits in the destination register.
+    /// > MULH, MULHU, and MULHSU perform the same multiplication but return the upper XLEN bits of
+    /// > the full 2×XLEN-bit product, for signed×signed, unsigned×unsigned, and signed rs1×unsigned
+    /// > rs2 multiplication, respectively.
+    pub fn mulhsu(&mut self, dest: Specifier, src1: Specifier, src2: Specifier) -> ExecutionResult {
+        trace!("Executing mulhsu {dest} {src1} {src2}");
+        self.reg_reg_op(dest, src1, src2, |s1, s2| {
+            ((s1 as i32 as i64 * s2 as i64) >> 32) as u32
+        })
+    }
+
+    /// Executes a `mulhu` instruction.
+    ///
+    /// Corresponds to the assembly instruction `mulhu dest src1 src2`.
+    ///
+    /// > MUL performs an XLEN-bit×XLEN-bit multiplication of rs1 by rs2 and places the lower XLEN
+    /// > bits in the destination register.
+    /// > MULH, MULHU, and MULHSU perform the same multiplication but return the upper XLEN bits of
+    /// > the full 2×XLEN-bit product, for signed×signed, unsigned×unsigned, and signed rs1×unsigned
+    /// > rs2 multiplication, respectively.
+    pub fn mulhu(&mut self, dest: Specifier, src1: Specifier, src2: Specifier) -> ExecutionResult {
+        trace!("Executing mulhu {dest} {src1} {src2}");
+        self.reg_reg_op(dest, src1, src2, |s1, s2| {
+            ((s1 as u64 * s2 as u64) >> 32) as u32
+        })
+    }
+
+    /// Executes a `div` instruction.
+    ///
+    /// Corresponds to the assembly instruction `div dest src1 src2`.
+    ///
+    /// > DIV and DIVU perform an XLEN bits by XLEN bits signed and unsigned integer division of rs1
+    /// > by rs2, rounding towards zero.
+    ///
+    /// > The quotient of division by zero has all bits set, and the remainder of division by zero
+    /// > equals the dividend. Signed division overflow occurs only when the most-negative integer
+    /// > is divided by −1. The quotient of a signed division with overflow is equal to the
+    /// > dividend, and the remainder is zero. Unsigned division overflow cannot occur.
+    pub fn div(&mut self, dest: Specifier, src1: Specifier, src2: Specifier) -> ExecutionResult {
+        trace!("Executing div {dest} {src1} {src2}");
+        self.reg_reg_op(dest, src1, src2, |s1, s2| match s2 == 0 {
+            true => 0xFFFF_FFFF,
+            false => (s1 as i32).overflowing_div(s2 as i32).0 as u32,
+        })
+    }
+
+    /// Executes a `divu` instruction.
+    ///
+    /// Corresponds to the assembly instruction `divu dest src1 src2`.
+    ///
+    /// > DIV and DIVU perform an XLEN bits by XLEN bits signed and unsigned integer division of rs1
+    /// > by rs2, rounding towards zero.
+    ///
+    /// > The quotient of division by zero has all bits set, and the remainder of division by zero
+    /// > equals the dividend. Signed division overflow occurs only when the most-negative integer
+    /// > is divided by −1. The quotient of a signed division with overflow is equal to the
+    /// > dividend, and the remainder is zero. Unsigned division overflow cannot occur.
+    pub fn divu(&mut self, dest: Specifier, src1: Specifier, src2: Specifier) -> ExecutionResult {
+        trace!("Executing divu {dest} {src1} {src2}");
+        self.reg_reg_op(dest, src1, src2, |s1, s2| {
+            s1.checked_div(s2).unwrap_or(0xFFFF_FFFF)
+        })
+    }
+
+    /// Executes a `rem` instruction.
+    ///
+    /// Corresponds to the assembly instruction `rem dest src1 src2`.
+    ///
+    /// > REM and REMU provide the remainder of the corresponding division operation. For REM, the
+    /// > sign of the result equals the sign of the dividend.
+    ///
+    /// > The quotient of division by zero has all bits set, and the remainder of division by zero
+    /// > equals the dividend. Signed division overflow occurs only when the most-negative integer
+    /// > is divided by −1. The quotient of a signed division with overflow is equal to the
+    /// > dividend, and the remainder is zero. Unsigned division overflow cannot occur.
+    pub fn rem(&mut self, dest: Specifier, src1: Specifier, src2: Specifier) -> ExecutionResult {
+        trace!("Executing rem {dest} {src1} {src2}");
+        self.reg_reg_op(dest, src1, src2, |s1, s2| match s2 == 0 {
+            true => s1,
+            false => (s1 as i32).overflowing_rem(s2 as i32).0 as u32,
+        })
+    }
+
+    /// Executes a `remu` instruction.
+    ///
+    /// Corresponds to the assembly instruction `remu dest src1 src2`.
+    ///
+    /// > REM and REMU provide the remainder of the corresponding division operation. For REM, the
+    /// > sign of the result equals the sign of the dividend.
+    ///
+    /// > The quotient of division by zero has all bits set, and the remainder of division by zero
+    /// > equals the dividend. Signed division overflow occurs only when the most-negative integer
+    /// > is divided by −1. The quotient of a signed division with overflow is equal to the
+    /// > dividend, and the remainder is zero. Unsigned division overflow cannot occur.
+    pub fn remu(&mut self, dest: Specifier, src1: Specifier, src2: Specifier) -> ExecutionResult {
+        trace!("Executing remu {dest} {src1} {src2}");
+        self.reg_reg_op(dest, src1, src2, |s1, s2| s1.checked_rem(s2).unwrap_or(s1))
+    }
+
     pub fn jal(&mut self, dest: Specifier, offset: i32) -> ExecutionResult {
         trace!("Executing jal {dest} {offset}");
         self.jump_op(dest, |registers| registers.pc().wrapping_add_signed(offset))

@@ -811,6 +811,14 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
                     RegRegOp::Srl => Executor::srl,
                     RegRegOp::Sub => Executor::sub,
                     RegRegOp::Sra => Executor::sra,
+                    RegRegOp::Mul => Executor::mul,
+                    RegRegOp::Mulh => Executor::mulh,
+                    RegRegOp::Mulhsu => Executor::mulhsu,
+                    RegRegOp::Mulhu => Executor::mulhu,
+                    RegRegOp::Div => Executor::div,
+                    RegRegOp::Divu => Executor::divu,
+                    RegRegOp::Rem => Executor::rem,
+                    RegRegOp::Remu => Executor::remu,
                 };
                 op(&mut executor, dest, src1, src2)
             }
