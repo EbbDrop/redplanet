@@ -118,9 +118,11 @@ impl<T: Copy> ArrayStorage<T> {
         divisor: u64,
     ) {
         let first_page = index / divisor;
+        let last_page = (index + buf.len() as u64).div_ceil(divisor);
+
         let page_index = index - (first_page * divisor);
 
-        let amount_of_pages = (buf.len() as u64).div_ceil(divisor);
+        let amount_of_pages = last_page - first_page;
 
         if let Some(table) = self.page_tables.get(table_depth) {
             let tables = table.get_item(table_ptr);
@@ -171,9 +173,11 @@ impl<T: Copy> ArrayStorage<T> {
         divisor: u64,
     ) -> Box<dyn Iterator<Item = &'_ T> + '_> {
         let first_page = index / divisor;
+        let last_page = (index + len).div_ceil(divisor);
+
         let page_index = index - (first_page * divisor);
 
-        let amount_of_pages = len.div_ceil(divisor);
+        let amount_of_pages = last_page - first_page;
 
         if let Some(table) = self.page_tables.get(table_depth) {
             let tables = table.get_item(table_ptr);
@@ -269,9 +273,11 @@ impl<T: Copy> ArrayStorage<T> {
         buf: &[T],
     ) {
         let first_page = index / divisor;
+        let last_page = (index + buf.len() as u64).div_ceil(divisor);
+
         let page_index = index - (first_page * divisor);
 
-        let amount_of_pages = (buf.len() as u64).div_ceil(divisor);
+        let amount_of_pages = last_page - first_page;
 
         if let Some((table, next_page_tables)) = page_tables.split_first_mut() {
             if !table.is_unique_table_ptr(table_ptr) {
@@ -469,9 +475,10 @@ impl Instance {
         let items_per_top_level_page = array_storage.items_per_top_level_page();
 
         let first_page = index / items_per_top_level_page;
-        let page_index = index - (first_page * items_per_top_level_page);
+        let last_page = (index + buf.len() as u64).div_ceil(items_per_top_level_page);
+        let total_pages = last_page - first_page;
 
-        let total_pages = (buf.len() as u64).div_ceil(items_per_top_level_page);
+        let page_index = index - (first_page * items_per_top_level_page);
 
         for i in 0..total_pages {
             let start = (i * items_per_top_level_page).saturating_sub(page_index);
@@ -504,9 +511,10 @@ impl Instance {
         let items_per_top_level_page = array_storage.items_per_top_level_page();
 
         let first_page = index / items_per_top_level_page;
-        let page_index = index - (first_page * items_per_top_level_page);
+        let last_page = (index + buf.len() as u64).div_ceil(items_per_top_level_page);
+        let total_pages = last_page - first_page;
 
-        let total_pages = (buf.len() as u64).div_ceil(items_per_top_level_page);
+        let page_index = index - (first_page * items_per_top_level_page);
 
         for i in 0..total_pages {
             let start = (i * items_per_top_level_page).saturating_sub(page_index);
@@ -539,9 +547,10 @@ impl Instance {
         let items_per_top_level_page = array_storage.items_per_top_level_page();
 
         let first_page = index / items_per_top_level_page;
-        let page_index = index - (first_page * items_per_top_level_page);
+        let last_page = (index + len).div_ceil(items_per_top_level_page);
+        let total_pages = last_page - first_page;
 
-        let total_pages = len.div_ceil(items_per_top_level_page);
+        let page_index = index - (first_page * items_per_top_level_page);
 
         let iter = (0..total_pages).flat_map(move |i| {
             let table_ptr = &self.pages[(first_page + i) as usize];
@@ -778,6 +787,28 @@ mod tests {
     }
 
     #[test]
+    fn buf_read_and_write_over_page_boundary() {
+        let mut array_storage = ArrayStorage::<u32>::new(1);
+        let size = array_storage.items_per_top_level_page();
+
+        let mut instance = array_storage.new_instance(0, size * 2);
+
+        let mut buf_write = vec![0; (size - 4) as usize];
+        let mut i: u32 = 0;
+        buf_write.fill_with(|| {
+            i = i.wrapping_add(KINDA_BIG_PRIME as u32);
+            i + 1
+        });
+        assert!(instance.write(&mut array_storage, size / 2 + 4, &buf_write));
+
+        let mut buf_read = vec![0; (size - 2) as usize];
+        assert!(instance.read(&array_storage, &mut buf_read, size / 2 + 2));
+
+        assert_eq!(&buf_read[..2], &[0, 0]);
+        assert_eq!(&buf_read[2..], &buf_write);
+    }
+
+    #[test]
     fn iterator() {
         let mut array_storage = ArrayStorage::<u32>::new(1);
         let size = array_storage.items_per_top_level_page();
@@ -793,6 +824,21 @@ mod tests {
         assert!(instance.write(&mut array_storage, 2, &buf_write));
 
         let mut i: u32 = 0;
+
+        assert!(
+            instance
+                .iter_range(&array_storage, 0, 2)
+                .unwrap()
+                .all(|v| *v == 0),
+            "Start with 2 zeros"
+        );
+        assert!(
+            instance
+                .iter_range(&array_storage, size * 2 - 2, 2)
+                .unwrap()
+                .all(|v| *v == 0),
+            "End with 2 zeros"
+        );
 
         for from_array_storage in instance
             .iter_range(&array_storage, 2, size * 2 - 4)
@@ -831,5 +877,22 @@ mod tests {
                 assert_eq!(v, &101);
             }
         }
+    }
+
+    #[test]
+    fn string_read_write() {
+        let mut array_storage = ArrayStorage::<u8>::new(3);
+        let size = array_storage.items_per_top_level_page();
+
+        let mut instance = array_storage.new_instance(0, size * 2);
+
+        let buf = b"Hello, world\n\0Type a character: ";
+
+        assert!(instance.write(&mut array_storage, 64 - 19, buf));
+
+        let mut buf_read = vec![0u8; 32];
+        assert!(instance.read(&array_storage, &mut buf_read, 64 - 19));
+
+        assert_eq!(&buf_read, &buf);
     }
 }
