@@ -98,14 +98,17 @@ pub struct Simulator<S: Simulatable<SimulationAllocator>> {
     allocator: SimulationAllocator,
     /// The object that's being simulated.
     ///
-    /// The simulatable itself is provided externally (using a [`GenericSimulatable`]), but its allocator
-    /// is provided by us ([`space_time`]).
+    /// The simulatable itself is provided externally (using a [`GenericSimulatable`]), but its
+    /// allocator is provided by us ([`space_time`]).
     simulatable: S,
     /// Ordered timeline of `(head, snapshot_id)` pairs, where `snapshot_id` is an id in
     /// [`space_time`] of the snapshot taken at state `head.state_index`. A snapshot is made after
     /// construction of this `Simulator`, so this should never be empty. `head` holds the values
     /// [`head`] had right after the snapshot was made (so `head.base_snapshot_index` will be the
     /// index of this `(head, snapshot_id)` pair).
+    ///
+    /// The state indices of the snapshots (`head.state_index`) are guaranteed to be increasing
+    /// strictly. This means there will never be two snapshots of the same state index.
     snapshots: Vec<(Head, SnapshotId)>,
     /// Ordered timeline of `(step_index, custom_tick)` pairs, where `custom_tick` is the
     /// [`IntoTick`] that was passed to [`step_with`] to use as custom tick function at step
@@ -151,6 +154,14 @@ impl<S: Simulatable<SimulationAllocator>> Simulator<S> {
         &self.simulatable
     }
 
+    /// Provides immutable access to the allocator that was used by [`Simulator::new`] to construct
+    /// the simulatable.
+    ///
+    /// This is the same as the first element of the tuple returned by [`inspect`](Self::inspect).
+    pub fn allocator(&self) -> &SimulationAllocator {
+        &self.allocator
+    }
+
     /// Returns an accessor that can be used to immutably inspect the simulatable's state.
     ///
     /// If you only need to inspect the simulatable's config (not its state), you can just use
@@ -162,6 +173,19 @@ impl<S: Simulatable<SimulationAllocator>> Simulator<S> {
     pub fn inspect(&self) -> (&SimulationAllocator, &S) {
         trace!("Inspecting simulatable");
         (&self.allocator, &self.simulatable)
+    }
+
+    /// Returns the number of steps from the start of history to the current state.
+    pub fn current_steps(&self) -> usize {
+        self.head.state_index.steps_since(StateIndex::new()).len()
+    }
+
+    /// Returns the total number of steps from the start of history to the last stored state.
+    pub fn available_steps(&self) -> usize {
+        self.head_at_last_state()
+            .state_index
+            .steps_since(StateIndex::new())
+            .len()
     }
 
     /// Advance the simulation forward by one tick, but use a custom `tick` function instead of
@@ -286,13 +310,94 @@ impl<S: Simulatable<SimulationAllocator>> Simulator<S> {
 
         // If the current state is the newest AND dirty, then we need to save it, so it can be
         // restored later when redoing.
-        if !self.is_head_detached() && self.allocator.0.head().is_none() {
+        if self.is_head_dirty() {
             self.make_snapshot();
         }
 
         self.go_to_state(target_state_index);
 
         true
+    }
+
+    /// Revert the simulation to the most recent past state for which `pred` returns `true`.
+    /// Returns `false` if `pred` returned `false` for all states in the past, or if there are no
+    /// steps to undo.
+    ///
+    /// Note that the "most recent past state" never includes the current state.
+    ///
+    /// The arguments to `pred` are the same as the elements returned by [`Self::inspect`].
+    ///
+    /// `pred` may be called on any step, even future ones. However, it is guaranteed that `pred`
+    /// will be called *at most once* per step. Additionally, it will have been called at least
+    /// `n` times when `n` steps are eventually undone.
+    /// But, **the order in which the steps are visited is not defined**.
+    ///
+    /// This method also takes a `visit` function that will be applied in reverse chronological
+    /// order to arbitrary intermediate states. It will at least be applied to the most recent state
+    /// for which `pred` returns `true`; which will also always be the last call to `visit`, since
+    /// `visit` is called in reverse chronological order. Note that `visit` will be called between
+    /// 1 and `n` times when `n` steps are eventually undone.
+    pub fn undo_steps_until(
+        &mut self,
+        pred: impl Fn(&SimulationAllocator, &S) -> bool,
+        mut visit: impl FnMut(&Self),
+    ) -> bool {
+        if self.head.state_index.previous().is_none() {
+            // Cannot undo when at the start of history
+            trace!("Undoing steps in simulator while at the start of history; doing nothing");
+            return false;
+        }
+
+        // If the current state is the newest AND dirty, then we need to save it, so it can be
+        // restored later when redoing.
+        if self.is_head_dirty() {
+            self.make_snapshot();
+        }
+
+        // Upper bound (exclusive) on state indices to visit the first iteration.
+        let mut top_state_index = self.head.state_index;
+
+        let base_snapshot_index = match self.is_head_at_snapshot() {
+            false => self.head.base_snapshot_index,
+            true => self.head.base_snapshot_index - 1,
+        };
+
+        for snapshot_index in (0..=base_snapshot_index).rev() {
+            self.go_to_snapshot(snapshot_index);
+
+            // If we got in this loop, `top_state_index` must have a previous state.
+            let end_state_index = top_state_index.previous().unwrap();
+
+            let mut last_matched_state =
+                pred(&self.allocator, &self.simulatable).then_some(self.head.state_index);
+
+            for _ in end_state_index.steps_since(self.head.state_index) {
+                self.replay_step();
+                if pred(&self.allocator, &self.simulatable) {
+                    last_matched_state = Some(self.head.state_index);
+                }
+            }
+
+            if let Some(state_index) = last_matched_state {
+                if state_index < self.head.state_index {
+                    self.go_to_snapshot(snapshot_index);
+                }
+                while self.head.state_index != state_index {
+                    self.replay_step();
+                }
+                visit(self);
+                return true;
+            }
+
+            visit(self);
+
+            // Upper bound (exclusive) on state indices to visit next iteration.
+            top_state_index = self.snapshots[snapshot_index].0.state_index;
+        }
+
+        // Reached the start of history, while `pred` still hasn't returned `true`.
+        self.go_to_snapshot(0);
+        false
     }
 
     /// Redo the last undone step. Returns `false` if there was nothing to redo.
@@ -308,6 +413,17 @@ impl<S: Simulatable<SimulationAllocator>> Simulator<S> {
         self.go_to_state(self.head.state_index.next());
 
         true
+    }
+
+    /// Jump to the state resulting from applying `steps` steps from the start of history.
+    pub fn go_to(&mut self, steps: usize) {
+        // If the current state is the newest AND dirty, then we need to save it, so it can be
+        // restored later when redoing.
+        if self.is_head_dirty() {
+            self.make_snapshot();
+        }
+
+        self.go_to_state(StateIndex::new().add_steps(steps));
     }
 
     /// Heuristic to determine if we should take a snapshot already.
@@ -341,6 +457,16 @@ impl<S: Simulatable<SimulationAllocator>> Simulator<S> {
         &self.snapshots[self.last_snapshot_index()].0
     }
 
+    /// Returns the state of HEAD that is the furthest of all stored history. This will be the HEAD
+    /// at the last snapshot if a past state is checked-out, or the current HEAD if
+    /// `self.is_head_dirty()`.
+    fn head_at_last_state(&self) -> &Head {
+        match self.is_head_detached() {
+            true => self.head_at_last_snapshot(),
+            false => &self.head,
+        }
+    }
+
     fn last_snapshot_index(&self) -> usize {
         self.snapshots
             .len()
@@ -364,9 +490,34 @@ impl<S: Simulatable<SimulationAllocator>> Simulator<S> {
         self.head.base_snapshot_index != self.last_snapshot_index()
     }
 
+    /// Returns `true` if HEAD is currently at a clean checkout of a snapshot.
+    ///
+    /// If this is `false`, then [`Self::is_head_dirty()`] is implied.
+    fn is_head_at_snapshot(&self) -> bool {
+        self.snapshots[self.head.base_snapshot_index].0.state_index == self.head.state_index
+    }
+
+    /// Returns `true` if HEAD is at the end of history and dirty.
+    ///
+    /// The meaning of "dirty" here is to indicate that there are "unsaved" changes since the last
+    /// snapshot (were "last" is the end of history). This implies checking out another snapshot
+    /// would be destructive at this point.
+    ///
+    /// Note that this differs from the "dirty" of [`SpaceTime::head`], in the sense that
+    /// [`SpaceTime::head`] will also be dirty if HEAD is in between two snapshots from the past.
+    fn is_head_dirty(&self) -> bool {
+        !self.is_head_detached() && !self.is_head_at_snapshot()
+    }
+
     /// Discard the current state and revert to the state at `target_state_index`.
+    ///
+    /// Assumes `target_state_index` is reachable even after discarding the current state.
     fn go_to_state(&mut self, target_state_index: StateIndex) {
         trace!("Reverting to state {target_state_index:?}");
+
+        if self.head.state_index == target_state_index {
+            return;
+        }
 
         // Determine the last snapshot still before the target state
         let target_base_snapshot_index = self.find_base_snapshot(target_state_index);
@@ -395,6 +546,10 @@ impl<S: Simulatable<SimulationAllocator>> Simulator<S> {
         trace!("Reverting to snapshot with index {snapshot_index}");
 
         let (Head { state_index, .. }, snapshot_id) = self.snapshots[snapshot_index];
+
+        if self.head.state_index == state_index {
+            return;
+        }
 
         // Compute new indices in `custom_ticks`
         let next_custom_tick_index = self.custom_ticks.partition_point(|(s, _)| *s < state_index);
@@ -455,11 +610,7 @@ impl StateIndex {
     }
 
     pub fn next(self) -> Self {
-        Self(
-            self.0
-                .checked_add(1)
-                .expect("attempt to index more simulation states than fit in a usize"),
-        )
+        self.add_steps(1)
     }
 
     pub fn previous(self) -> Option<Self> {
@@ -473,6 +624,14 @@ impl StateIndex {
     #[allow(unused)]
     pub fn previous_step(self) -> Option<StepIndex> {
         self.0.checked_sub(1).map(StepIndex)
+    }
+
+    pub fn add_steps(self, n: usize) -> Self {
+        Self(
+            self.0
+                .checked_add(n)
+                .expect("attempt to index more simulation states than fit in a usize"),
+        )
     }
 
     pub fn steps_since(self, older_state: Self) -> impl ExactSizeIterator<Item = StepIndex> {
