@@ -540,63 +540,73 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
         })
     }
 
-    pub fn alr(&mut self, dest: Specifier, _src: Specifier, addr: Specifier) -> ExecutionResult {
+    pub fn lr(&mut self, dest: Specifier, _src: Specifier, addr: Specifier) -> ExecutionResult {
         trace!("Executing lr {dest}, ({addr})");
-        self.lw(dest, addr, 0)
+        self.load_op(dest, addr, 0, |this, address| {
+            if !Alignment::WORD.is_aligned(address) {
+                return Err(MemoryError::MisalignedAccess);
+            }
+            this.core.mmu().read_word(this.allocator, address)
+        })
     }
 
-    pub fn asc(&mut self, dest: Specifier, src: Specifier, addr: Specifier) -> ExecutionResult {
+    pub fn sc(&mut self, dest: Specifier, src: Specifier, addr: Specifier) -> ExecutionResult {
         trace!("Executing sc {dest}, {src}, ({addr})");
-        // Since only one core is supported, sc always succeeds.
-        self.core.registers_mut(self.allocator).set_x(dest, 0);
-        self.sw(src, addr, 0)
+        self.store_op(src, addr, 0, |this, address, value| {
+            if !Alignment::WORD.is_aligned(address) {
+                return Err(MemoryError::MisalignedAccess);
+            }
+            // Since only one core is supported, sc always succeeds.
+            this.core.registers_mut(this.allocator).set_x(dest, 0);
+            this.core.mmu().write_word(this.allocator, address, value)
+        })
     }
 
-    pub fn aswap(&mut self, dest: Specifier, src: Specifier, addr: Specifier) -> ExecutionResult {
+    pub fn amoswap(&mut self, dest: Specifier, src: Specifier, addr: Specifier) -> ExecutionResult {
         trace!("Executing amoswap {dest}, {src}, ({addr})");
         self.amo_op(dest, src, addr, |_, reg| reg)
     }
 
-    pub fn aadd(&mut self, dest: Specifier, src: Specifier, addr: Specifier) -> ExecutionResult {
+    pub fn amoadd(&mut self, dest: Specifier, src: Specifier, addr: Specifier) -> ExecutionResult {
         trace!("Executing amoadd {dest}, {src}, ({addr})");
         self.amo_op(dest, src, addr, |mem, reg| mem.wrapping_add(reg))
     }
 
-    pub fn aand(&mut self, dest: Specifier, src: Specifier, addr: Specifier) -> ExecutionResult {
+    pub fn amoand(&mut self, dest: Specifier, src: Specifier, addr: Specifier) -> ExecutionResult {
         trace!("Executing amoand {dest}, {src}, ({addr})");
         self.amo_op(dest, src, addr, |mem, reg| mem & reg)
     }
 
-    pub fn aor(&mut self, dest: Specifier, src: Specifier, addr: Specifier) -> ExecutionResult {
+    pub fn amoor(&mut self, dest: Specifier, src: Specifier, addr: Specifier) -> ExecutionResult {
         trace!("Executing amoor {dest}, {src}, ({addr})");
         self.amo_op(dest, src, addr, |mem, reg| mem | reg)
     }
 
-    pub fn axor(&mut self, dest: Specifier, src: Specifier, addr: Specifier) -> ExecutionResult {
+    pub fn amoxor(&mut self, dest: Specifier, src: Specifier, addr: Specifier) -> ExecutionResult {
         trace!("Executing amoxor {dest}, {src}, ({addr})");
         self.amo_op(dest, src, addr, |mem, reg| mem ^ reg)
     }
 
-    pub fn amaxs(&mut self, dest: Specifier, src: Specifier, addr: Specifier) -> ExecutionResult {
+    pub fn amomax(&mut self, dest: Specifier, src: Specifier, addr: Specifier) -> ExecutionResult {
         trace!("Executing amomax {dest}, {src}, ({addr})");
         self.amo_op(dest, src, addr, |mem, reg| {
             (mem as i32).max(reg as i32) as u32
         })
     }
 
-    pub fn amins(&mut self, dest: Specifier, src: Specifier, addr: Specifier) -> ExecutionResult {
+    pub fn amomin(&mut self, dest: Specifier, src: Specifier, addr: Specifier) -> ExecutionResult {
         trace!("Executing amomin {dest}, {src}, ({addr})");
         self.amo_op(dest, src, addr, |mem, reg| {
             (mem as i32).min(reg as i32) as u32
         })
     }
 
-    pub fn amaxu(&mut self, dest: Specifier, src: Specifier, addr: Specifier) -> ExecutionResult {
+    pub fn amomaxu(&mut self, dest: Specifier, src: Specifier, addr: Specifier) -> ExecutionResult {
         trace!("Executing amomaxu {dest}, {src}, ({addr})");
         self.amo_op(dest, src, addr, |mem, reg| mem.max(reg))
     }
 
-    pub fn aminu(&mut self, dest: Specifier, src: Specifier, addr: Specifier) -> ExecutionResult {
+    pub fn amominu(&mut self, dest: Specifier, src: Specifier, addr: Specifier) -> ExecutionResult {
         trace!("Executing amominu {dest}, {src}, ({addr})");
         self.amo_op(dest, src, addr, |mem, reg| mem.min(reg))
     }
@@ -911,7 +921,13 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
         let registers = self.core.registers(self.allocator);
         let address = registers.x(addr);
 
-        let value =
+        if !Alignment::WORD.is_aligned(address) {
+            return Err(Exception::LoadAddressMisaligned(address));
+        }
+
+        let src_value = registers.x(src);
+
+        let mem_value =
             self.core
                 .mmu()
                 .read_word(self.allocator, address)
@@ -919,10 +935,8 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
                     MemoryError::MisalignedAccess => Exception::LoadAddressMisaligned(address),
                     MemoryError::AccessFault => Exception::LoadAccessFault(address),
                 })?;
-        let registers = self.core.registers_mut(self.allocator);
-        registers.set_x(dest, value);
 
-        let new_value = op(value, registers.x(src));
+        let new_value = op(mem_value, src_value);
 
         self.core
             .mmu()
@@ -933,6 +947,7 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
             })?;
 
         let registers = self.core.registers_mut(self.allocator);
+        registers.set_x(dest, mem_value);
         increment_pc(registers);
         Ok(())
     }

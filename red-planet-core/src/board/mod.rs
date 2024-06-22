@@ -3,7 +3,7 @@
 mod system_bus;
 
 use crate::bus::Bus;
-use crate::core::clint::{Clint, MTIMECMP_ADDR_HI, MTIME_ADDR_HI};
+use crate::core::clint::{Clint, MTIMECMP_ADDR_LO, MTIME_ADDR_LO};
 use crate::core::{Core, Interrupt};
 use crate::resources::plic::Plic;
 use crate::resources::ram::Ram;
@@ -67,6 +67,7 @@ impl<A: Allocator> Board<A> {
         };
 
         let mrom_range = memory_map.range_for(&Resource::Mrom).unwrap();
+        let clint_range = memory_map.range_for(&Resource::Clint).unwrap();
         let flash_range = memory_map.range_for(&Resource::Flash).unwrap();
         let dram_range = memory_map.range_for(&Resource::Dram).unwrap();
 
@@ -128,8 +129,8 @@ impl<A: Allocator> Board<A> {
                 crate::core::Config {
                     // At least one Hart must have ID 0 according to the spec.
                     hart_id: 0,
-                    mtime_address: MTIME_ADDR_HI,
-                    mtimecmp_address: MTIMECMP_ADDR_HI,
+                    mtime_address: clint_range.start() + MTIME_ADDR_LO,
+                    mtimecmp_address: clint_range.start() + MTIMECMP_ADDR_LO,
                     support_misaligned_memory_access: true,
                     reset_vector: mrom_range.start(),
                     // TODO: Research what address QEMU virt uses for this.

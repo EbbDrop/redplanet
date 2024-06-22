@@ -7,8 +7,8 @@ use crate::bus::Bus;
 use crate::interrupt::DynIrqCallback;
 
 // https://github.com/qemu/qemu/blob/master/include/hw/intc/riscv_aclint.h#L74
-pub const MTIMECMP_ADDR_HI: u32 = 0x0;
-pub const MTIMECMP_ADDR_LO: u32 = MTIMECMP_ADDR_HI + 4;
+pub const MTIMECMP_ADDR_LO: u32 = 0x0;
+pub const MTIMECMP_ADDR_HI: u32 = MTIMECMP_ADDR_LO + 4;
 pub const MTIME_ADDR_LO: u32 = 0x7ff8;
 pub const MTIME_ADDR_HI: u32 = MTIME_ADDR_LO + 4;
 

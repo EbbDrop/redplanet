@@ -197,7 +197,7 @@ impl Trap {
     pub fn set_m_trap_cause(&mut self, cause: impl Into<Cause>) {
         self.last_m_trap_cause = cause.into();
         self.mcause_override = None;
-        trace!("Setting mcause to {:?}", &self.last_s_trap_cause);
+        trace!("Setting mcause to {:?}", &self.last_m_trap_cause);
     }
 
     /// Indicate a trap caused by `cause` is taken in S-mode.
@@ -632,8 +632,8 @@ impl From<Option<Interrupt>> for CauseCode {
 fn read_tvec(base_address: u32, mode: VectorMode) -> u32 {
     assert!(base_address & 0b11 == 0);
     let mode_bits = match mode {
-        VectorMode::Direct => 0b01,
-        VectorMode::Vectored => 0b10,
+        VectorMode::Direct => 0,
+        VectorMode::Vectored => 1,
     };
     base_address | mode_bits
 }

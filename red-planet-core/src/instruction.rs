@@ -610,7 +610,7 @@ fn funct12(raw_instruction: u32) -> u32 {
 
 /// Returns the 12-bit S-immediate sign-extended to 32 bits.
 fn s_imm(raw_instruction: u32) -> i32 {
-    let imm_11_5 = raw_instruction & 0x7F00_0000;
+    let imm_11_5 = raw_instruction & 0xFE00_0000;
     let imm_4_0 = raw_instruction & 0x0000_0F80;
     (imm_11_5 | (imm_4_0 << 13)) as i32 >> 20
 }

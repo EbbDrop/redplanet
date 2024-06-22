@@ -63,7 +63,7 @@ pub struct Config {
     pub nmi_vector: u32,
 }
 
-/// RISC-V core implementing the RV32I ISA.
+/// RISC-V core implementing the RV32IMAZicsr ISA.
 ///
 /// As we don't support hardware multithreading, every core always only has a single hart.
 /// We therefore don't model RISC-V harts explicitly, but rather consider [`Core`] to be the whole
@@ -146,8 +146,8 @@ pub struct Core<A: Allocator, B: SystemBus<A>> {
 }
 
 impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
-    /// The misa CSR is set to `0x4014_0100`, indicating that MXL=32 and that extensions I, S, and U
-    /// are supported.
+    /// The misa CSR is set to `0x4014_1101`, indicating that MXL=32 and that the following
+    /// extensions are supported: A, I, M, S, U.
     ///
     /// > The misa CSR is a WARL read-write register reporting the ISA supported by the hart. This
     /// > register must be readable in any implementation, but a value of zero can be returned to
@@ -165,7 +165,7 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
     /// > |   1 |   32 |
     /// > |   2 |   64 |
     /// > |   3 |  128 |
-    pub const MISA: u32 = 0x4014_0100;
+    pub const MISA: u32 = 0x4014_1101;
     /// The mvendorid CSR is set to 0 to indicate this is a non-commercial implementation.
     ///
     /// > The mvendorid CSR is a 32-bit read-only register providing the JEDEC manufacturer ID of
@@ -780,17 +780,17 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
                 dest,
             } => {
                 let op = match op {
-                    AmoOp::Lr => Executor::alr,
-                    AmoOp::Sc => Executor::asc,
-                    AmoOp::Swap => Executor::aswap,
-                    AmoOp::Add => Executor::aadd,
-                    AmoOp::Xor => Executor::axor,
-                    AmoOp::And => Executor::aand,
-                    AmoOp::Or => Executor::aor,
-                    AmoOp::Min => Executor::amins,
-                    AmoOp::Max => Executor::amaxs,
-                    AmoOp::Minu => Executor::aminu,
-                    AmoOp::Maxu => Executor::amaxu,
+                    AmoOp::Lr => Executor::lr,
+                    AmoOp::Sc => Executor::sc,
+                    AmoOp::Swap => Executor::amoswap,
+                    AmoOp::Add => Executor::amoadd,
+                    AmoOp::Xor => Executor::amoxor,
+                    AmoOp::And => Executor::amoand,
+                    AmoOp::Or => Executor::amoor,
+                    AmoOp::Min => Executor::amomin,
+                    AmoOp::Max => Executor::amomax,
+                    AmoOp::Minu => Executor::amominu,
+                    AmoOp::Maxu => Executor::amomaxu,
                 };
                 op(&mut executor, dest, src, addr)
             }
