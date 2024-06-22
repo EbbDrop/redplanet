@@ -47,6 +47,8 @@ pub struct SimTarget {
 
     pub output_buffer: <SimulationAllocator as Allocator>::ArrayId<u8>,
     pub output_buffer_len: <SimulationAllocator as Allocator>::Id<usize>,
+
+    pub last_output: Vec<u8>,
 }
 
 fn read_from_term(buf: &mut [u8]) -> std::io::Result<usize> {
@@ -71,9 +73,6 @@ fn read_from_term(buf: &mut [u8]) -> std::io::Result<usize> {
             break;
         }
     }
-    if size != 0 {
-        dbg!(buf, size);
-    }
 
     Ok(size)
 }
@@ -93,6 +92,7 @@ impl SimTarget {
             execution_mode: ExecutionMode::Continue,
             output_buffer,
             output_buffer_len,
+            last_output: Vec::new(),
         }
     }
 
@@ -112,9 +112,19 @@ impl SimTarget {
         let mut buf = vec![0; *len];
         let _ = output_buffer.read(&mut buf, 0);
 
+        if self.last_output == buf {
+            return;
+        }
+
+        self.last_output = buf;
+
         let mut stdout = stdout();
         stdout.queue(cursor::MoveTo(0, 0)).ok();
-        stdout.queue(Print(String::from_utf8_lossy(&buf))).ok();
+        stdout
+            .queue(Print(
+                String::from_utf8_lossy(&self.last_output).replace('\n', "\r\n"),
+            ))
+            .ok();
         stdout
             .queue(Clear(crossterm::terminal::ClearType::FromCursorDown))
             .ok();

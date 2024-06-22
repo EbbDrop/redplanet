@@ -1,6 +1,7 @@
 use std::io;
 use std::net::{TcpListener, TcpStream};
 
+use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use gdbstub::common::Signal;
 use gdbstub::conn::{Connection, ConnectionExt};
 use gdbstub::stub::SingleThreadStopReason;
@@ -49,6 +50,8 @@ fn main() -> std::io::Result<()> {
     let mut file = File::open(args.binary)?;
     file.read_to_end(&mut buf)?;
 
+    enable_raw_mode()?;
+
     let simulator = Simulator::new(|allocator| {
         let board = Board::new(allocator, Config::default());
         if args.elf {
@@ -64,6 +67,8 @@ fn main() -> std::io::Result<()> {
     } else {
         run(simulator);
     }
+
+    disable_raw_mode()?;
 
     Ok(())
 }
@@ -102,7 +107,7 @@ fn run(simulator: Simulator) {
     target.execution_mode = ExecutionMode::Continue;
 
     match target.run(|| false) {
-        RunEvent::Event(e) => println!("\n\ntarget stoped: {:?}", e),
+        RunEvent::Event(e) => println!("\r\n\r\ntarget stoped: {:?}\r\n", e),
         RunEvent::IncomingData => unreachable!(),
     }
 }

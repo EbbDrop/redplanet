@@ -205,6 +205,7 @@ impl<S: Simulatable<SimulationAllocator>> Simulator<S> {
         trace!("Stepping simulator once with custom step \"{name}\"");
 
         if self.is_head_detached() {
+            trace!("Simulator HEAD is detached");
             self.clear_forward_history();
         }
 
