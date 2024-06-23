@@ -384,6 +384,10 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
             csr::STVAL => self.read_stval(allocator),
             csr::SIP => self.read_sip(allocator),
             //
+            // Supervisor Protection and Translation
+            //
+            csr::SATP => self.read_satp(allocator),
+            //
             // Machine Information Registers
             //
             csr::MVENDORID => Ok(Self::MVENDORID),
@@ -515,6 +519,10 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
             csr::STVAL => self.write_stval(allocator, value, mask),
             csr::SIP => self.write_sip(allocator, value, mask),
             //
+            // Supervisor Protection and Translation
+            //
+            csr::SATP => self.write_satp(allocator, value, mask),
+            //
             // Machine Information Registers (read-only)
             //
             csr::MVENDORID | csr::MARCHID | csr::MIMPID | csr::MHARTID | csr::MCONFIGPTR => {
@@ -645,7 +653,14 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
         if self.check_for_interrupts(allocator) {
             return;
         }
-        let raw_instruction = self.fetch_instruction(allocator, pc);
+        let raw_instruction =
+            self.mmu()
+                .fetch_instruction(allocator, pc)
+                .map_err(|err| match err {
+                    MemoryError::MisalignedAccess => Exception::InstructionAddressMisaligned(pc),
+                    MemoryError::AccessFault => Exception::InstructionAccessFault(pc),
+                    MemoryError::PageFault => Exception::InstructionPageFault(pc),
+                });
         self.step_with_raw(allocator, raw_instruction);
         self.check_for_interrupts(allocator);
     }
@@ -877,6 +892,7 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
             Instruction::Sret => executor.sret(),
             Instruction::Mret => executor.mret(),
             Instruction::Wfi => executor.wfi(),
+            Instruction::SfenceVma { vaddr, asid } => executor.sfence_vma(vaddr, asid),
             Instruction::Csr { op, dest, csr, src } => {
                 let op = match op {
                     CsrOp::ReadWrite => Executor::csrrw,
@@ -899,32 +915,6 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
                 op(&mut executor, dest, csr, immediate)
             }
         }
-    }
-
-    /// "Independent instruction fetch unit"
-    ///
-    /// > The base RISC-V ISA has fixed-length 32-bit instructions that must be naturally aligned on
-    /// > 32-bit boundaries.
-    ///
-    /// > Instructions are stored in memory as a sequence of 16-bit little-endian parcels,
-    /// > regardless of memory system endianness. Parcels forming one instruction are stored at
-    /// > increasing halfword addresses, with the lowest-addressed parcel holding the
-    /// > lowest-numbered bits in the instruction specification.
-    fn fetch_instruction(&self, allocator: &mut A, address: u32) -> Result<u32, Exception> {
-        self.mmu()
-            .fetch_instruction(allocator, address)
-            .map_err(|err| match err {
-                MemoryError::MisalignedAccess => Exception::InstructionAddressMisaligned(address),
-                MemoryError::AccessFault => Exception::InstructionAccessFault(address),
-            })
-    }
-
-    /// Map a virtual byte address to the corresponding physical byte address.
-    ///
-    /// Helper for [`Mmu`].
-    fn translate_address(&self, address: u32) -> u32 {
-        // 1-to-1 mapping for now
-        address
     }
 
     /// Checks whether any interrupts are pending and can be taken. If so, it executes the

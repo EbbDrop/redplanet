@@ -76,6 +76,10 @@ pub enum Instruction {
     Sret,
     Mret,
     Wfi,
+    SfenceVma {
+        vaddr: Specifier,
+        asid: Specifier,
+    },
     Csr {
         op: CsrOp,
         dest: Specifier,
@@ -328,6 +332,10 @@ impl Instruction {
                             SysPriv::Sret => Self::Sret,
                             SysPriv::Mret => Self::Mret,
                             SysPriv::Wfi => Self::Wfi,
+                            SysPriv::SfenceVma => Self::SfenceVma {
+                                vaddr: rs1(raw_instruction),
+                                asid: rs2(raw_instruction),
+                            },
                         }),
                         None => Err(DecodeError::IllegalInstruction),
                     },
@@ -471,7 +479,13 @@ fn i_sys(raw_instruction: u32) -> Option<SysFunct> {
 }
 
 fn sys_priv(raw_instruction: u32) -> Option<SysPriv> {
-    if u8::from(rs1(raw_instruction)) != 0 || u8::from(rd(raw_instruction)) != 0 {
+    if u8::from(rd(raw_instruction)) != 0 {
+        return None;
+    }
+    if funct7(raw_instruction) == 0b0001001 {
+        return Some(SysPriv::SfenceVma);
+    }
+    if u8::from(rs1(raw_instruction)) != 0 {
         return None;
     }
     let funct = funct12(raw_instruction);
@@ -672,6 +686,7 @@ enum SysPriv {
     Sret,
     Mret,
     Wfi,
+    SfenceVma,
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]

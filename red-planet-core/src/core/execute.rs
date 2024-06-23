@@ -854,6 +854,14 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
         Ok(())
     }
 
+    pub fn sfence_vma(&mut self, vaddr: Specifier, asid: Specifier) -> ExecutionResult {
+        trace!("Executing sfence.vma {vaddr} {asid}");
+        let _ = vaddr;
+        let _ = asid;
+        increment_pc(self.core.registers_mut(self.allocator));
+        Ok(())
+    }
+
     // Private generic implementations
 
     fn reg_imm_op<F>(
@@ -934,6 +942,7 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
                 .map_err(|err| match err {
                     MemoryError::MisalignedAccess => Exception::LoadAddressMisaligned(address),
                     MemoryError::AccessFault => Exception::LoadAccessFault(address),
+                    MemoryError::PageFault => Exception::StoreOrAmoPageFault(address),
                 })?;
 
         let new_value = op(mem_value, src_value);
@@ -944,6 +953,7 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
             .map_err(|err| match err {
                 MemoryError::MisalignedAccess => Exception::LoadAddressMisaligned(address),
                 MemoryError::AccessFault => Exception::LoadAccessFault(address),
+                MemoryError::PageFault => Exception::StoreOrAmoPageFault(address),
             })?;
 
         let registers = self.core.registers_mut(self.allocator);
@@ -1010,6 +1020,7 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
         let value = op(self, address).map_err(|err| match err {
             MemoryError::MisalignedAccess => Exception::LoadAddressMisaligned(address),
             MemoryError::AccessFault => Exception::LoadAccessFault(address),
+            MemoryError::PageFault => Exception::LoadPageFault(address),
         })?;
         let registers = self.core.registers_mut(self.allocator);
         registers.set_x(dest, value);
@@ -1033,6 +1044,7 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
         op(self, address, value).map_err(|err| match err {
             MemoryError::MisalignedAccess => Exception::StoreOrAmoAddressMisaligned(address),
             MemoryError::AccessFault => Exception::StoreOrAmoAccessFault(address),
+            MemoryError::PageFault => Exception::StoreOrAmoPageFault(address),
         })?;
         increment_pc(self.core.registers_mut(self.allocator));
         Ok(())

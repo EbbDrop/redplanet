@@ -132,7 +132,6 @@ impl Status {
     }
 
     /// Returns `true` if the MXR (Make eXecutable Readable) bit is set.
-    #[allow(dead_code)] // TODO: remove once method gets used.
     pub fn mxr(&self) -> bool {
         self.mstatus.view_bits::<Lsb0>()[idx::MXR]
     }
@@ -143,7 +142,6 @@ impl Status {
     }
 
     /// Returns `true` if the SUM (permit Supervisor User Memory access) bit is set.
-    #[allow(dead_code)] // TODO: remove once method gets used.
     pub fn sum(&self) -> bool {
         self.mstatus.view_bits::<Lsb0>()[idx::SUM]
     }

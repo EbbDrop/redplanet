@@ -75,6 +75,14 @@ pub struct Trap {
     /// The value associated with an exception/interrupt handled in S-mode, or zero if there is no
     /// such data.
     stval: u32,
+
+    // Supervisor Address Translation and Protection register fields.
+    /// Mode indicating the current address translation scheme (MODE field of satp).
+    satp_mode: SatpMode,
+    /// Address Space IDentifier (ASID field of satp, 9-bit).
+    satp_asid: u16,
+    /// Physical Page Number of the root page table (PPN field of satp, 22-bit).
+    satp_ppn: u32,
 }
 
 impl Default for Trap {
@@ -104,6 +112,9 @@ impl Trap {
             mtval2: 0x0000_0000,
             mtinst: 0x0000_0000,
             stval: 0x0000_0000,
+            satp_mode: SatpMode::Bare,
+            satp_asid: 0,
+            satp_ppn: 0,
         }
     }
 
@@ -246,6 +257,30 @@ impl Trap {
     pub fn set_stval(&mut self, value: u32) {
         trace!("Setting stval to {value:#x}");
         self.stval = value;
+    }
+
+    /// Address translation mode.
+    pub fn satp_mode(&self) -> SatpMode {
+        self.satp_mode
+    }
+
+    /// Address Space Identifier (9-bit).
+    #[allow(dead_code)] // TODO
+    pub fn satp_asid(&self) -> u16 {
+        self.satp_asid
+    }
+
+    /// Physical Page Number of the root page table (22-bit).
+    pub fn satp_ppn(&self) -> u32 {
+        self.satp_ppn
+    }
+
+    fn satp(&self) -> u32 {
+        let mode = match self.satp_mode {
+            SatpMode::Bare => 0x0000_0000,
+            SatpMode::Sv32 => 0x8000_0000,
+        };
+        mode | (self.satp_asid as u32) << 22 | self.satp_ppn
     }
 }
 
@@ -548,12 +583,35 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
         *stval = *stval & !mask | value & mask;
         Ok(())
     }
+
+    pub fn read_satp(&self, allocator: &mut A) -> CsrReadResult {
+        Ok(self.trap.get(allocator).satp())
+    }
+
+    pub fn write_satp(&self, allocator: &mut A, value: u32, mask: u32) -> CsrWriteResult {
+        let trap = &mut self.trap.get_mut(allocator);
+        let value = trap.satp() & !mask | value & mask;
+        let value = value.view_bits::<Lsb0>();
+        trap.satp_mode = match value[31] {
+            false => SatpMode::Bare,
+            true => SatpMode::Sv32,
+        };
+        trap.satp_asid = value[22..31].load_le();
+        trap.satp_ppn = value[..22].load_le();
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VectorMode {
     Direct,
     Vectored,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SatpMode {
+    Bare,
+    Sv32,
 }
 
 #[derive(Debug, Clone)]
