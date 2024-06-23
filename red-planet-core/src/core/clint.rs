@@ -7,9 +7,11 @@ use crate::bus::Bus;
 use crate::interrupt::DynIrqCallback;
 
 // https://github.com/qemu/qemu/blob/master/include/hw/intc/riscv_aclint.h#L74
-pub const MTIMECMP_ADDR_LO: u32 = 0x0;
+const SWI_SIZE: u32 = 0x4000;
+#[allow(clippy::identity_op)] // for clarity
+pub const MTIMECMP_ADDR_LO: u32 = SWI_SIZE + 0x0;
 pub const MTIMECMP_ADDR_HI: u32 = MTIMECMP_ADDR_LO + 4;
-pub const MTIME_ADDR_LO: u32 = 0x7ff8;
+pub const MTIME_ADDR_LO: u32 = SWI_SIZE + 0x7ff8;
 pub const MTIME_ADDR_HI: u32 = MTIME_ADDR_LO + 4;
 
 #[derive(Debug)]
