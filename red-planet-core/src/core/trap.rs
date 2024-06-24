@@ -1,10 +1,10 @@
 //! Trap-related state and read/write logic for corresponding CSRs on [`Core`].
 
-use bitvec::{array::BitArray, field::BitField, order::Lsb0, view::BitView};
+use bitvec::{field::BitField, order::Lsb0, view::BitView};
 use log::{debug, trace};
 use space_time::allocator::Allocator;
 
-use crate::{system_bus::SystemBus, PrivilegeLevel};
+use crate::{system_bus::SystemBus, BitOps, PrivilegeLevel};
 
 use super::{Core, CsrReadResult, CsrWriteResult, Exception, ExceptionCode, Interrupt};
 
@@ -63,7 +63,7 @@ pub struct Trap {
 
     /// Array of booleans, with for each bit index matching an exception's code a bool indicating
     /// whether handling that exception should be delegated to S-mode (if not caused from M-mode).
-    delegate_exception: BitArray<[u32; 1], Lsb0>,
+    delegate_exception: u32,
 
     /// The value associated with a trap handled in M-mode, or zero if there is no such data.
     mtval: u32,
@@ -107,7 +107,7 @@ impl Trap {
             last_s_trap_cause: Cause::Exception(None),
             scause_override: None,
             // TODO: Should this default to 0xFFFF_FFFF?
-            delegate_exception: BitArray::new([0x0000_0000]),
+            delegate_exception: 0x0000_0000,
             mtval: 0x0000_0000,
             mtval2: 0x0000_0000,
             mtinst: 0x0000_0000,
@@ -228,7 +228,7 @@ impl Trap {
     /// Note that traps triggered in M-mode should always be handled in M-mode, even if this method
     /// returns `true`.
     pub fn should_delegate_exception(&self, code: ExceptionCode) -> bool {
-        self.delegate_exception[code as usize]
+        self.delegate_exception.bit(code as usize)
     }
 
     /// Sets the value of the mtval register to `value`.
@@ -533,14 +533,13 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
     }
 
     pub fn read_medeleg(&self, allocator: &mut A) -> CsrReadResult {
-        Ok(self.trap.get(allocator).delegate_exception.load_le())
+        Ok(self.trap.get(allocator).delegate_exception)
     }
 
     /// The medeleg register is **WARL**.
     pub fn write_medeleg(&self, allocator: &mut A, value: u32, mask: u32) -> CsrWriteResult {
         let medeleg = &mut self.trap.get_mut(allocator).delegate_exception;
-        let old_value = medeleg.load_le::<u32>();
-        medeleg.store_le(old_value & !mask | value & mask & DELEGATABLE_EXCEPTIONS_MASK);
+        *medeleg = *medeleg & !mask | value & mask & DELEGATABLE_EXCEPTIONS_MASK;
         Ok(())
     }
 

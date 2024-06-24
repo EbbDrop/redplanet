@@ -315,3 +315,29 @@ impl<A: Allocator, T: 'static + Clone> Allocated<A, T> {
         allocator.get_mut(self.0).unwrap()
     }
 }
+
+trait BitOps {
+    fn bit(&self, idx: usize) -> bool;
+
+    fn set_bit(&mut self, idx: usize, value: bool);
+}
+
+macro_rules! impl_bit_ops {
+    ($($ty:ty),+) => {
+        $(
+            impl BitOps for $ty {
+                #[inline]
+                fn bit(&self, idx: usize) -> bool {
+                    (*self >> idx) & 0b1 != 0
+                }
+
+                #[inline]
+                fn set_bit(&mut self, idx: usize, value: bool) {
+                    *self = *self & !(1 << idx) | ((value as $ty) << idx);
+                }
+            }
+        )+
+    };
+}
+
+impl_bit_ops!(u8, u16, u32, u64, u128);

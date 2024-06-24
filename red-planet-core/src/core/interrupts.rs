@@ -1,6 +1,6 @@
 use std::rc::Weak;
 
-use bitvec::{array::BitArray, field::BitField, order::Lsb0, view::BitView};
+use bitvec::{order::Lsb0, view::BitView};
 use log::trace;
 use space_time::allocator::Allocator;
 
@@ -8,7 +8,7 @@ use super::{Core, CsrReadResult, CsrWriteResult, Interrupt};
 use crate::{
     interrupt::{DynIrqCallback, IrqCallback},
     system_bus::SystemBus,
-    PrivilegeLevel,
+    BitOps, PrivilegeLevel,
 };
 
 const SUPERVISOR_SOFTWARE_INTERRUPT: usize = Interrupt::SupervisorSoftwareInterrupt as usize;
@@ -38,7 +38,7 @@ const DELEGATABLE_INTERRUPTS_MASK: u16 = 0
 pub struct Interrupts {
     /// Array of booleans, with for each bit index matching an interrupts's code a bool indicating
     /// whether handling that interrupt should be delegated to S-mode (if not triggered in M-mode).
-    delegate: BitArray<[u16; 1], Lsb0>,
+    delegate: u16,
 
     /// Software-writable bit that is ORed with [`seip_external`] to become the SEIP field of the
     /// final [`mip`] register.
@@ -49,10 +49,10 @@ pub struct Interrupts {
 
     /// The final mip register as visible from guest software. This means the SEIP field is
     /// recomputed each time [`seip_external`] or [`seip_internal`] changes.
-    mip: BitArray<[u16; 1], Lsb0>,
+    mip: u16,
 
     /// The mie register.
-    mie: BitArray<[u16; 1], Lsb0>,
+    mie: u16,
 }
 
 impl Default for Interrupts {
@@ -65,16 +65,16 @@ impl Interrupts {
     pub fn new() -> Self {
         Self {
             // TODO: Are these defaults correct?
-            delegate: BitArray::new([0x0000_0000]),
+            delegate: 0x0000_0000,
             seip_external: false,
             seip_internal: false,
-            mip: BitArray::new([0x0000_0000]),
-            mie: BitArray::new([0x0000_0000]),
+            mip: 0x0000_0000,
+            mie: 0x0000_0000,
         }
     }
 
     pub fn should_delegate(&self, interrupt: Interrupt) -> bool {
-        self.delegate[interrupt as usize]
+        self.delegate.bit(interrupt as usize)
     }
 
     /// Indicate whether there is an M-level external interrupt pending (MEIP).
@@ -82,7 +82,7 @@ impl Interrupts {
     /// Controlled by the PLIC.
     pub fn set_m_external(&mut self, value: bool) {
         trace!("Setting mip.MEIP to {value}");
-        self.mip.set(MACHINE_EXTERNAL_INTERRUPT, value);
+        self.mip.set_bit(MACHINE_EXTERNAL_INTERRUPT, value)
     }
 
     /// Indicate whether there is an S-level external interrupt pending (SEIP).
@@ -92,7 +92,7 @@ impl Interrupts {
     pub fn set_s_external(&mut self, value: bool) {
         trace!("Setting mip.SEIP to {value}");
         self.seip_external = value;
-        self.mip.set(
+        self.mip.set_bit(
             SUPERVISOR_EXTERNAL_INTERRUPT,
             self.seip_external | self.seip_internal,
         );
@@ -103,7 +103,7 @@ impl Interrupts {
     /// Controlled externally based on memory-mapped mtime and mtimecmp registers.
     pub fn set_m_timer(&mut self, value: bool) {
         trace!("Setting mip.MTIP to {value}");
-        self.mip.set(MACHINE_TIMER_INTERRUPT, value);
+        self.mip.set_bit(MACHINE_TIMER_INTERRUPT, value);
     }
 
     // set_s_timer is missing, since STIP is only controllable by M-mode guest code.
@@ -115,7 +115,7 @@ impl Interrupts {
     /// Controlled by accesses to memory-mapped control registers.
     pub fn set_m_soft(&mut self) {
         trace!("Setting mip.MSIP to true");
-        self.mip.set(MACHINE_SOFTWARE_INTERRUPT, true);
+        self.mip.set_bit(MACHINE_SOFTWARE_INTERRUPT, true);
     }
 
     /// Indicate that an S-level software interrupt is pending (SSIP).
@@ -125,7 +125,7 @@ impl Interrupts {
     /// May be set to 1 by the PLIC, but is also settable from guest code.
     pub fn set_s_soft(&mut self) {
         trace!("Setting mip.SSIP to true");
-        self.mip.set(SUPERVISOR_SOFTWARE_INTERRUPT, true);
+        self.mip.set_bit(SUPERVISOR_SOFTWARE_INTERRUPT, true);
     }
 
     /// Returns `Some(interrupt)` if there is an interrupt ready to be taken in M-mode. If there are
@@ -144,7 +144,7 @@ impl Interrupts {
             Interrupt::SupervisorTimerInterrupt,
         ]
         .into_iter()
-        .find(|&i| ready[i as usize])
+        .find(|&i| ready.bit(i as usize))
     }
 
     /// Returns `Some(interrupt)` if there is an interrupt ready to be taken in S-mode. If there are
@@ -160,7 +160,7 @@ impl Interrupts {
             Interrupt::SupervisorTimerInterrupt,
         ]
         .into_iter()
-        .find(|&i| ready[i as usize])
+        .find(|&i| ready.bit(i as usize))
     }
 }
 
@@ -189,19 +189,19 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
 
 impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
     pub fn read_mideleg(&self, allocator: &mut A) -> CsrReadResult {
-        Ok(self.interrupts.get(allocator).delegate.load_le())
+        Ok(self.interrupts.get(allocator).delegate as u32)
     }
 
     /// The mideleg register is **WARL**.
     pub fn write_mideleg(&self, allocator: &mut A, value: u32, mask: u32) -> CsrWriteResult {
         let mideleg = &mut self.interrupts.get_mut(allocator).delegate;
         let mask = mask as u16 & DELEGATABLE_INTERRUPTS_MASK;
-        mideleg.store_le(mideleg.load_le::<u16>() & !mask | value as u16 & mask);
+        *mideleg = *mideleg & !mask | value as u16 & mask;
         Ok(())
     }
 
     pub fn read_mip(&self, allocator: &mut A) -> CsrReadResult {
-        Ok(self.interrupts.get(allocator).mip.load_le())
+        Ok(self.interrupts.get(allocator).mip as u32)
     }
 
     pub fn write_mip(&self, allocator: &mut A, value: u32, mask: u32) -> CsrWriteResult {
@@ -217,21 +217,21 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
 
         if mask[SUPERVISOR_EXTERNAL_INTERRUPT] {
             interrupts.seip_internal = value[SUPERVISOR_EXTERNAL_INTERRUPT];
-            interrupts.mip.set(
+            interrupts.mip.set_bit(
                 SUPERVISOR_EXTERNAL_INTERRUPT,
                 interrupts.seip_external | interrupts.seip_internal,
             );
         }
 
         if mask[SUPERVISOR_TIMER_INTERRUPT] {
-            interrupts.mip.set(
+            interrupts.mip.set_bit(
                 SUPERVISOR_TIMER_INTERRUPT,
                 value[SUPERVISOR_TIMER_INTERRUPT],
             );
         }
 
         if mask[SUPERVISOR_SOFTWARE_INTERRUPT] {
-            interrupts.mip.set(
+            interrupts.mip.set_bit(
                 SUPERVISOR_SOFTWARE_INTERRUPT,
                 value[SUPERVISOR_SOFTWARE_INTERRUPT],
             );
@@ -241,19 +241,19 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
     }
 
     pub fn read_mie(&self, allocator: &mut A) -> CsrReadResult {
-        Ok(self.interrupts.get(allocator).mie.load_le())
+        Ok(self.interrupts.get(allocator).mie as u32)
     }
 
     pub fn write_mie(&self, allocator: &mut A, value: u32, mask: u32) -> CsrWriteResult {
         let mie = &mut self.interrupts.get_mut(allocator).mie;
         let mask = mask as u16 & VALID_INTERRUPTS_MASK;
-        mie.store_le(mie.load_le::<u16>() & !mask | value as u16 & mask);
+        *mie = *mie & !mask | value as u16 & mask;
         Ok(())
     }
 
     pub fn read_sip(&self, allocator: &mut A) -> CsrReadResult {
         let interrupts = self.interrupts.get(allocator);
-        Ok((interrupts.mip & interrupts.delegate).load_le())
+        Ok((interrupts.mip & interrupts.delegate) as u32)
     }
 
     pub fn write_sip(&self, allocator: &mut A, value: u32, mask: u32) -> CsrWriteResult {
@@ -265,7 +265,7 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
         let interrupts = &mut self.interrupts.get_mut(allocator);
 
         if mask[SUPERVISOR_SOFTWARE_INTERRUPT] {
-            interrupts.mip.set(
+            interrupts.mip.set_bit(
                 SUPERVISOR_SOFTWARE_INTERRUPT,
                 value[SUPERVISOR_SOFTWARE_INTERRUPT],
             );
@@ -276,17 +276,15 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
 
     pub fn read_sie(&self, allocator: &mut A) -> CsrReadResult {
         let interrupts = self.interrupts.get(allocator);
-        Ok((interrupts.mie & interrupts.delegate).load_le())
+        Ok((interrupts.mie & interrupts.delegate) as u32)
     }
 
     pub fn write_sie(&self, allocator: &mut A, value: u32, mask: u32) -> CsrWriteResult {
         let interrupts = self.interrupts.get_mut(allocator);
-        let delegate = interrupts.delegate.load_le::<u16>();
         // Since we are masking with `delegate`, it is not needed to also mask with
         // VALID_INTERRUPTS_MASK (or DELEGETABLE_INTERRUPTS_MASK).
-        let mask = mask as u16 & delegate;
-        let mie = &mut interrupts.mie;
-        mie.store_le(mie.load_le::<u16>() & !mask | value as u16 & mask);
+        let mask = mask as u16 & interrupts.delegate;
+        interrupts.mie = interrupts.mie & !mask | value as u16 & mask;
         Ok(())
     }
 
