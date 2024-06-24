@@ -344,9 +344,7 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
             //
             // Unprivileged Floating-Point CSRs
             //
-            csr::FFLAGS => todo!(),
-            csr::FRM => todo!(),
-            csr::FCSR => todo!(),
+            csr::FFLAGS | csr::FRM | csr::FCSR => Err(CsrAccessError::CsrUnsupported(specifier)),
             //
             // Unprivileged Counter/Timers
             //
@@ -425,8 +423,9 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
             //
             // Machine Memory Protection
             //
-            csr::PMPCFG0..=csr::PMPCFG15 => todo!(),
-            csr::PMPADDR0..=csr::PMPADDR63 => todo!(),
+            csr::PMPCFG0..=csr::PMPCFG15 | csr::PMPADDR0..=csr::PMPADDR63 => {
+                Err(CsrAccessError::CsrUnsupported(specifier))
+            }
             //
             // Machine Counters/Timers
             //
@@ -453,7 +452,9 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
             //
             // Debug/Trace Registers
             //
-            csr::TSELECT | csr::TDATA1 | csr::TDATA2 | csr::TDATA3 | csr::MCONTEXT => todo!(),
+            csr::TSELECT | csr::TDATA1 | csr::TDATA2 | csr::TDATA3 | csr::MCONTEXT => {
+                Err(CsrAccessError::CsrUnsupported(specifier))
+            }
             _ => Err(CsrAccessError::CsrUnsupported(specifier)),
         }
     }
@@ -485,9 +486,7 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
             //
             // Unprivileged Floating-Point CSRs
             //
-            csr::FFLAGS => todo!(),
-            csr::FRM => todo!(),
-            csr::FCSR => todo!(),
+            csr::FFLAGS | csr::FRM | csr::FCSR => Err(CsrAccessError::CsrUnsupported(specifier))?,
             //
             // Unprivileged Counter/Timers (read-only)
             //
@@ -558,8 +557,9 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
             //
             // Machine Memory Protection
             //
-            csr::PMPCFG0..=csr::PMPCFG15 => todo!(),
-            csr::PMPADDR0..=csr::PMPADDR63 => todo!(),
+            csr::PMPCFG0..=csr::PMPCFG15 | csr::PMPADDR0..=csr::PMPADDR63 => {
+                Err(CsrAccessError::CsrUnsupported(specifier))?
+            }
             //
             // Machine Counters/Timers
             //
@@ -586,7 +586,9 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
             //
             // Debug/Trace Registers
             //
-            csr::TSELECT | csr::TDATA1 | csr::TDATA2 | csr::TDATA3 | csr::MCONTEXT => todo!(),
+            csr::TSELECT | csr::TDATA1 | csr::TDATA2 | csr::TDATA3 | csr::MCONTEXT => {
+                Err(CsrAccessError::CsrUnsupported(specifier))?
+            }
             _ => Err(CsrAccessError::CsrUnsupported(specifier))?,
         }
     }
