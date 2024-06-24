@@ -803,6 +803,9 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
             return Err(Exception::IllegalInstruction(None));
         }
         let status = self.core.status.get_mut(self.allocator);
+        if status.tsr() {
+            return Err(Exception::IllegalInstruction(None));
+        }
         let pp = status.spp();
         // Set xIE to xPIE.
         status.set_sie(status.spie());
@@ -849,6 +852,11 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
 
     pub fn wfi(&mut self) -> ExecutionResult {
         trace!("Executing wfi");
+        if self.core.privilege_mode(self.allocator) < PrivilegeLevel::Machine
+            && self.core.status.get(self.allocator).tw()
+        {
+            return Err(Exception::IllegalInstruction(None));
+        }
         // Implemented as a nop, which is allowed.
         increment_pc(self.core.registers_mut(self.allocator));
         Ok(())
@@ -858,6 +866,9 @@ impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
         trace!("Executing sfence.vma {vaddr} {asid}");
         let _ = vaddr;
         let _ = asid;
+        if self.core.status.get(self.allocator).tvm() {
+            return Err(Exception::IllegalInstruction(None));
+        }
         increment_pc(self.core.registers_mut(self.allocator));
         Ok(())
     }

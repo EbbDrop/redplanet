@@ -6,7 +6,9 @@ use space_time::allocator::Allocator;
 
 use crate::{system_bus::SystemBus, BitOps, PrivilegeLevel};
 
-use super::{Core, CsrReadResult, CsrWriteResult, Exception, ExceptionCode, Interrupt};
+use super::{
+    csr, Core, CsrAccessError, CsrReadResult, CsrWriteResult, Exception, ExceptionCode, Interrupt,
+};
 
 // Delegetable exceptions according to QEMU's implementation.
 #[allow(clippy::identity_op)] // To use this zero . here, which generates better formatting.
@@ -584,10 +586,23 @@ impl<A: Allocator, B: SystemBus<A>> Core<A, B> {
     }
 
     pub fn read_satp(&self, allocator: &mut A) -> CsrReadResult {
+        if self.status.get(allocator).tvm() {
+            return Err(CsrAccessError::CsrUnavailable(
+                csr::SATP,
+                "satp cannot be read when TVM=1".to_owned(),
+            ));
+        }
         Ok(self.trap.get(allocator).satp())
     }
 
     pub fn write_satp(&self, allocator: &mut A, value: u32, mask: u32) -> CsrWriteResult {
+        if self.status.get(allocator).tvm() {
+            return Err(CsrAccessError::CsrUnavailable(
+                csr::SATP,
+                "satp cannot be written when TVM=1".to_owned(),
+            )
+            .into());
+        }
         let trap = &mut self.trap.get_mut(allocator);
         let value = trap.satp() & !mask | value & mask;
         let value = value.view_bits::<Lsb0>();

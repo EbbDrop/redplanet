@@ -184,7 +184,6 @@ impl Status {
     /// Returns `true` if the TVM (Trap Virtual Memory) bit is set.
     ///
     /// The TVM field is **WARL**.
-    #[allow(dead_code)] // TODO: remove once method gets used.
     pub fn tvm(&self) -> bool {
         self.mstatus.view_bits::<Lsb0>()[idx::TVM]
     }
@@ -199,7 +198,6 @@ impl Status {
     /// Returns `true` if the TW (Timeout Wait) bit is set.
     ///
     /// The TW field is **WARL**.
-    #[allow(dead_code)] // TODO: remove once method gets used.
     pub fn tw(&self) -> bool {
         self.mstatus.view_bits::<Lsb0>()[idx::TW]
     }
@@ -214,7 +212,6 @@ impl Status {
     /// Returns `true` if the TSR (Trap SRET) bit is set.
     ///
     /// The TSR field is **WARL**.
-    #[allow(dead_code)] // TODO: remove once method gets used.
     pub fn tsr(&self) -> bool {
         self.mstatus.view_bits::<Lsb0>()[idx::TSR]
     }
