@@ -1,4 +1,4 @@
-use std::any::TypeId;
+use crate::typemap::TypeId;
 
 use generational_arena::Index;
 

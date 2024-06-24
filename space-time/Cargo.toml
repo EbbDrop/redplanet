@@ -8,3 +8,4 @@ edition = "2021"
 [dependencies]
 downcast-rs = "1.2.0"
 generational-arena = "0.2.9"
+nohash = "0.2.0"

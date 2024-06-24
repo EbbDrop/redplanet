@@ -1,12 +1,23 @@
-use std::{any::TypeId, collections::HashMap};
+use nohash::IntMap;
 
 use crate::{
     array_storage::{ArrayStorage, ArrayStorageTrait},
     table::{Table, TableTrait},
 };
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct TypeId(std::any::TypeId);
+
+impl TypeId {
+    pub fn of<T: ?Sized + 'static>() -> Self {
+        Self(std::any::TypeId::of::<T>())
+    }
+}
+
+impl nohash::IsEnabled for TypeId {}
+
 #[derive(Debug, Default)]
-pub(crate) struct TableTypeMap(HashMap<TypeId, Box<dyn TableTrait>>);
+pub(crate) struct TableTypeMap(IntMap<TypeId, Box<dyn TableTrait>>);
 
 impl TableTypeMap {
     pub(crate) fn get_with_id(&self, type_id: TypeId) -> Option<&dyn TableTrait> {
@@ -55,7 +66,7 @@ impl TableTypeMap {
 }
 
 #[derive(Debug, Default)]
-pub(crate) struct ArrayStorageTypeMap(HashMap<TypeId, Box<dyn ArrayStorageTrait>>);
+pub(crate) struct ArrayStorageTypeMap(IntMap<TypeId, Box<dyn ArrayStorageTrait>>);
 
 impl ArrayStorageTypeMap {
     pub(crate) fn get_with_id(&self, type_id: TypeId) -> Option<&dyn ArrayStorageTrait> {
