@@ -137,9 +137,7 @@ impl AddressRange {
         self.delta().cmp(&other.delta())
     }
 
-    // TODO: Maybe make the slice type generic?
-    //       Or is it better to leave it to only byte slices as a safeguard?
-    pub fn to_index(self) -> impl SliceIndex<[u8], Output = [u8]> {
+    pub fn to_index<T>(self) -> impl SliceIndex<[T], Output = [T]> {
         const_assert!(usize::BITS >= 32);
         (self.start as usize)..=(self.end as usize)
     }

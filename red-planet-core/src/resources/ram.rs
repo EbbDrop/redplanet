@@ -53,10 +53,9 @@ impl<A: Allocator> Ram<A> {
     }
 
     /// Force RAM back to its reset state, which is all-zeros.
-    pub fn reset(&self, _allocator: &mut A) {
-        // let mut data = allocator.get_array_mut(self.data).unwrap();
-        // data.clear()
-        todo!()
+    pub fn reset(&self, allocator: &mut A) {
+        let mut data = allocator.get_array_mut(self.data).unwrap();
+        data.reset()
     }
 
     /// Reads a range of bytes from RAM into `buf`. Does not have side effects.

@@ -585,10 +585,6 @@ impl<S: Simulatable<SimulationAllocator>> Debug for Tick<S> {
     }
 }
 
-pub trait Event: Debug {
-    // TODO
-}
-
 #[derive(Debug, Clone, Eq, PartialEq)]
 struct Head {
     /// The index of the current state in the linear timeline.

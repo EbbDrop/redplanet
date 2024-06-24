@@ -136,7 +136,6 @@ impl<'c, A: Allocator, B: SystemBus<A>> Mmu<'c, A, B> {
             .map(|()| u32::from_le_bytes(buf))
     }
 
-    // TODO: these should become physical range accesses
     pub fn read_range(
         &self,
         buf: &mut [u8],
@@ -147,7 +146,6 @@ impl<'c, A: Allocator, B: SystemBus<A>> Mmu<'c, A, B> {
         self.read_debug(buf, allocator, address, privilege_level, false)
     }
 
-    // TODO: these should become physical range accesses
     pub fn read_range_debug(
         &self,
         buf: &mut [u8],
@@ -158,7 +156,6 @@ impl<'c, A: Allocator, B: SystemBus<A>> Mmu<'c, A, B> {
         self.read_debug(buf, allocator, address, privilege_level, false)
     }
 
-    // TODO: these should become physical range accesses
     pub fn write_range(
         &self,
         allocator: &mut A,
