@@ -124,7 +124,11 @@ impl<'c, A: Allocator, B: SystemBus<A>> Mmu<'c, A, B> {
     /// > lowest-numbered bits in the instruction specification.
     pub fn fetch_instruction(&self, allocator: &mut A, address: u32) -> Result<u32, MemoryError> {
         trace!("Fetching instruction from memory at vaddr {address:#010x}");
-        if !Alignment::WORD.is_aligned(address) {
+        let alignment = match self.core.config.strict_instruction_alignment {
+            true => Alignment::WORD,
+            false => Alignment::HALFWORD,
+        };
+        if !alignment.is_aligned(address) {
             debug!("Failed to fetch instruction: address misaligned: {address:#010x}");
             return Err(MemoryError::MisalignedAccess);
         }

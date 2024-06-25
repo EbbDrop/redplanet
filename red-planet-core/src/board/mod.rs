@@ -132,6 +132,7 @@ impl<A: Allocator> Board<A> {
                     mtime_address: clint_range.start() + MTIME_ADDR_LO,
                     mtimecmp_address: clint_range.start() + MTIMECMP_ADDR_LO,
                     support_misaligned_memory_access: true,
+                    strict_instruction_alignment: false,
                     reset_vector: mrom_range.start(),
                     // TODO: Research what address QEMU virt uses for this.
                     nmi_vector: mrom_range.start(),

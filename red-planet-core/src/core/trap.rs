@@ -140,7 +140,7 @@ impl Trap {
         self.s_vector_mode
     }
 
-    /// Returns the word-aligned M-mode Exception Program Counter.
+    /// Returns the M-mode Exception Program Counter.
     ///
     /// Note that this returns the value of the mepc register, which may have been written to the
     /// by guest code since the last call to [`Self::set_mepc`].
@@ -148,18 +148,13 @@ impl Trap {
         self.mepc
     }
 
-    /// Sets the M-mode Exception Program Counter to the word-aligned `address`.
-    ///
-    /// # Panics
-    ///
-    /// Panics of `address` is not word-aligned.
+    /// Sets the M-mode Exception Program Counter to `address`.
     pub fn set_mepc(&mut self, address: u32) {
-        assert!(address & 0b11 == 0);
         trace!("Setting mepc to {address:#010x}");
         self.mepc = address;
     }
 
-    /// Returns the word-aligned S-mode Exception Program Counter.
+    /// Returns the S-mode Exception Program Counter.
     ///
     /// Note that this returns the value of the sepc register, which may have been written to the
     /// by guest code since the last call to [`Self::set_sepc`].
@@ -167,13 +162,8 @@ impl Trap {
         self.sepc
     }
 
-    /// Sets the S-mode Exception Program Counter to the word-aligned `address`.
-    ///
-    /// # Panics
-    ///
-    /// Panics of `address` is not word-aligned.
+    /// Sets the S-mode Exception Program Counter to `address`.
     pub fn set_sepc(&mut self, address: u32) {
-        assert!(address & 0b11 == 0);
         trace!("Setting sepc to {address:#010x}");
         self.sepc = address;
     }

@@ -57,6 +57,10 @@ pub struct Config {
     /// If `true`, non-naturally-aligned memory accesses are supported.
     /// If `false`, they will generate an address-misaligned exception.
     pub support_misaligned_memory_access: bool,
+    /// If `true`, instruction must be word-aligned as specified in the spec.
+    /// If `false`, instruction must only be haldword-aligned, which would be the default if the C
+    /// extension were supported.
+    pub strict_instruction_alignment: bool,
     /// Address to which the core's PC register is reset.
     pub reset_vector: u32,
     /// Address of the handler for Non-Maskable Interrupts.
