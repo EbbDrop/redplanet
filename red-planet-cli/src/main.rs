@@ -12,6 +12,7 @@ use gdbstub::target::Target;
 mod gdb;
 mod target;
 
+use goblin::elf::program_header::PT_LOAD;
 use log::{debug, info};
 use target::{Event, ExecutionMode, RunEvent, SimTarget};
 
@@ -82,21 +83,23 @@ fn load_elf(
     let elf_header = goblin::elf::Elf::parse(program_elf)?;
 
     // copy all in-memory sections from the ELF file into system RAM
-    let sections = elf_header
-        .section_headers
+    let segments = elf_header
+        .program_headers
         .iter()
-        .filter(|h| h.is_alloc() && h.sh_type != goblin::elf::section_header::SHT_NOBITS);
+        .filter(|h| h.p_type == PT_LOAD);
 
-    for h in sections {
+    for h in segments {
         debug!(
-            "loading section {:?} into memory from [{:#010x?}..{:#010x?}]",
-            elf_header.shdr_strtab.get_at(h.sh_name).unwrap(),
-            h.sh_addr,
-            h.sh_addr + h.sh_size,
+            "loading segment: file range [{:#010x?}..{:#010x?}] to pmem range [{:#010x?}..{:#010x?}] (virt {:#010x?})",
+            h.p_offset,
+            h.p_offset + h.p_filesz,
+            h.p_paddr,
+            h.p_paddr + h.p_memsz,
+            h.p_vaddr,
         );
 
-        let buf = &program_elf[h.file_range().unwrap()];
-        board.load_physical(allocator, h.sh_addr as u32, buf);
+        let buf = &program_elf[h.file_range()];
+        board.load_physical(allocator, h.p_paddr as u32, buf);
     }
 
     Ok(())
