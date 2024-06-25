@@ -242,6 +242,7 @@ impl<S: Simulatable<SimulationAllocator>> Simulator<S> {
             }),
         };
 
+        self.head.next_custom_tick_index = self.custom_ticks.len();
         self.custom_ticks
             .push((self.head.state_index.next_step(), tick));
 
@@ -287,6 +288,7 @@ impl<S: Simulatable<SimulationAllocator>> Simulator<S> {
             Some((s, custom_tick)) if *s == step_index => {
                 trace!("Step to replay used custom tick \"{}\"", &custom_tick.name);
                 (custom_tick.tick)(&mut self.allocator, &self.simulatable);
+                self.head.next_custom_tick_index += 1;
             }
             _ => self.simulatable.tick(&mut self.allocator),
         }
