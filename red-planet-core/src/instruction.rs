@@ -355,9 +355,9 @@ impl Instruction {
                     SysFunct::Csrrwi | SysFunct::Csrrsi | SysFunct::Csrrci => {
                         Ok(Instruction::Csri {
                             op: match sys {
-                                SysFunct::Csrrw => CsrOp::ReadWrite,
-                                SysFunct::Csrrs => CsrOp::ReadSet,
-                                SysFunct::Csrrc => CsrOp::ReadClear,
+                                SysFunct::Csrrwi => CsrOp::ReadWrite,
+                                SysFunct::Csrrsi => CsrOp::ReadSet,
+                                SysFunct::Csrrci => CsrOp::ReadClear,
                                 _ => unreachable!(), // Already checked in outer match
                             },
                             dest: rd(raw_instruction),
