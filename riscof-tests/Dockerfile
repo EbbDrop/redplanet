@@ -7,7 +7,7 @@ RUN --mount=type=bind,source=.,target=/rp \
     --mount=type=cache,target=/usr/local/cargo/registry/ \
     <<EOF
 set -e
-cargo build --locked --release
+cargo build --locked --release --package red-planet-test
 cp ./target/release/red-planet-test /usr/bin/redplanet-test
 EOF
 
