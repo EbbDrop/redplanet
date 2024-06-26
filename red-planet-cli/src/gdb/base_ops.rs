@@ -43,8 +43,7 @@ impl SingleThreadBase for GdbTarget {
     }
 
     fn support_single_register_access(&mut self) -> Option<SingleRegisterAccessOps<'_, (), Self>> {
-        None
-        // Some(self)
+        Some(self)
     }
 
     fn read_addrs(&mut self, start_addr: u32, data: &mut [u8]) -> TargetResult<usize, Self> {

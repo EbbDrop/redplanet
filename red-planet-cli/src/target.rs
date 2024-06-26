@@ -4,9 +4,11 @@ use std::collections::HashSet;
 
 use command::Command;
 use gdbstub::target::TargetError;
+use gdbstub_arch::riscv::reg::id::RiscvRegId;
 use log::{error, info, trace};
 use red_planet_core::{
     board::Board,
+    registers::Specifier,
     simulator::{SimulationAllocator, UndoStepStopReason},
     Allocator, ArrayAccessor, ArrayAccessorMut,
 };
@@ -297,6 +299,30 @@ impl SimTarget {
         }
     }
 
+    fn read_register(&self, reg_id: RiscvRegId<u32>, simulator: &mut Simulator) -> Option<u32> {
+        let (allocator, board) = simulator.inspect();
+
+        match reg_id {
+            RiscvRegId::Gpr(i) => {
+                let registers = board.core().registers(allocator);
+                Some(registers.x(Specifier::new(i).unwrap()))
+            }
+            RiscvRegId::Fpr(_) => None,
+            RiscvRegId::Pc => Some(board.core().registers(allocator).pc()),
+            RiscvRegId::Csr(specifier) => simulator
+                .step_with("inspect csr", move |allocator, board| {
+                    board.core().read_csr(
+                        allocator,
+                        specifier,
+                        board.core().privilege_mode(allocator),
+                    )
+                })
+                .ok(),
+            RiscvRegId::Priv => Some(board.core().privilege_mode(allocator) as u8 as u32),
+            _ => None,
+        }
+    }
+
     pub fn execute_command(&mut self, command: Command, simulator: &mut Simulator) -> bool {
         trace!("Got command: {}", &command);
         match command {
@@ -331,6 +357,11 @@ impl SimTarget {
                 simulator.step_with("write all registers", move |allocator, board| {
                     *board.core().registers_mut(allocator) = registers.clone();
                 })
+            }
+            Command::ReadRegister(register, return_channel) => {
+                if let Some(value) = self.read_register(register, simulator) {
+                    let _ = return_channel.send(value);
+                }
             }
             Command::ReadAddrs(addr, len, return_channel) => {
                 let (allocator, board) = simulator.inspect();

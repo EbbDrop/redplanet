@@ -1,6 +1,6 @@
 mod base_ops;
 mod breakpoints;
-// mod registers;
+mod registers;
 mod resume;
 mod step;
 

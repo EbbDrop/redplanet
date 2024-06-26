@@ -1,4 +1,5 @@
 use gdbstub::target::TargetError;
+use gdbstub_arch::riscv::reg::id::RiscvRegId;
 use red_planet_core::{core::mmu::MemoryError, registers::Registers};
 
 use crate::gdb::GdbTargetError;
@@ -23,6 +24,7 @@ pub enum Command {
     WriteAddrs(u32, Vec<u8>, oneshot::Sender<Result<(), MemoryError>>),
     DeleteFuture,
     GoTo(usize),
+    ReadRegister(RiscvRegId<u32>, oneshot::Sender<u32>),
 }
 
 impl std::fmt::Display for Command {
@@ -38,6 +40,7 @@ impl std::fmt::Display for Command {
             Command::RemoveBreakpoint(_) => write!(f, "RemoveBreakpoint"),
             Command::AddBreakpoint(_) => write!(f, "AddBreakpoint"),
             Command::ReadRegisters(_) => write!(f, "ReadRegisters"),
+            Command::ReadRegister(_, _) => write!(f, "ReadRegister"),
             Command::WriteRegisters(_) => write!(f, "WriteRegisters"),
             Command::ReadAddrs(_, _, _) => write!(f, "ReadAddrs"),
             Command::WriteAddrs(_, _, _) => write!(f, "WriteAddrs"),
