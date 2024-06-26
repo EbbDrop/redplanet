@@ -100,14 +100,23 @@ impl TuiState {
             Registers(oneshot::Receiver<Registers>),
         }
 
-        let (command, command_response) = match command_str.trim() {
-            "q" | "quit" => (Command::Exit, None),
-            "p" | "pause" => (Command::Pause, None),
-            "c" | "continue" => (Command::Continue, None),
-            "s" | "step" => (Command::Step, None),
-            "rc" | "reverse-continue" => (Command::ReverseContinue, None),
-            "rs" | "reverse-step" => (Command::StepBack, None),
-            "regs" => {
+        let (command, command_response) = match command_str
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .as_slice()
+        {
+            ["q" | "quit"] => (Command::Exit, None),
+            ["p" | "pause"] => (Command::Pause, None),
+            ["c" | "continue"] => (Command::Continue, None),
+            ["s" | "step"] => (Command::Step, None),
+            ["rc" | "reverse-continue"] => (Command::ReverseContinue, None),
+            ["rs" | "reverse-step"] => (Command::StepBack, None),
+            ["df" | "delete-future"] => (Command::DeleteFuture, None),
+            ["g" | "goto", amount] if amount.parse::<usize>().is_ok() => {
+                let amount = amount.parse::<usize>().unwrap();
+                (Command::GoTo(amount), None)
+            }
+            ["regs"] => {
                 let (sender, receiver) = oneshot::channel();
                 (
                     Command::ReadRegisters(sender),

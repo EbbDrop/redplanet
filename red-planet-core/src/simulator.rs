@@ -573,7 +573,7 @@ impl<S: Simulatable<SimulationAllocator>> Simulator<S> {
         };
     }
 
-    fn clear_forward_history(&mut self) {
+    pub fn clear_forward_history(&mut self) {
         trace!("Clearing forward history of simulator");
         for (_, snapshot_id) in self.snapshots.drain((self.head.base_snapshot_index + 1)..) {
             self.allocator.0.drop_snapshot(snapshot_id).unwrap();

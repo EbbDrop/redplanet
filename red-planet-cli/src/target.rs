@@ -351,6 +351,14 @@ impl SimTarget {
                 });
                 let _ = return_channel.send(result);
             }
+            Command::DeleteFuture => {
+                simulator.clear_forward_history();
+            }
+            Command::GoTo(steps) => {
+                if simulator.available_steps() >= steps {
+                    simulator.go_to(steps);
+                }
+            }
         }
         false
     }

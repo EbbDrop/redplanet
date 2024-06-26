@@ -1,3 +1,5 @@
 [workspace]
 resolver = "2"
 members = ["red-planet-cli", "red-planet-core", "space-time", "red-planet-test"]
+
+default-members = ["red-planet-cli"]

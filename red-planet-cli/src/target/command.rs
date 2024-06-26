@@ -21,6 +21,8 @@ pub enum Command {
     WriteRegisters(Registers),
     ReadAddrs(u32, usize, FailableReturnChannel<Vec<u8>>),
     WriteAddrs(u32, Vec<u8>, oneshot::Sender<Result<(), MemoryError>>),
+    DeleteFuture,
+    GoTo(usize),
 }
 
 impl std::fmt::Display for Command {
@@ -39,6 +41,8 @@ impl std::fmt::Display for Command {
             Command::WriteRegisters(_) => write!(f, "WriteRegisters"),
             Command::ReadAddrs(_, _, _) => write!(f, "ReadAddrs"),
             Command::WriteAddrs(_, _, _) => write!(f, "WriteAddrs"),
+            Command::DeleteFuture => write!(f, "DeleteFuture"),
+            Command::GoTo(_) => write!(f, "GoTo"),
         }
     }
 }
