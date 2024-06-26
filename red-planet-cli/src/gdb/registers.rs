@@ -5,9 +5,9 @@ use gdbstub_arch::riscv::reg::id::RiscvRegId;
 use red_planet_core::registers::Specifier;
 use std::io::Write;
 
-use super::SimTarget;
+use super::GdbTarget;
 
-impl SingleRegisterAccess<()> for SimTarget {
+impl SingleRegisterAccess<()> for GdbTarget {
     fn read_register(
         &mut self,
         _tid: (),

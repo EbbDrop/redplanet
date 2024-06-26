@@ -5,32 +5,28 @@ use gdbstub::{
         singlethread::{SingleThreadRangeStepping, SingleThreadSingleStep},
     },
 };
-use log::info;
 
-use crate::target::ExecutionMode;
+use crate::target::command::Command;
 
-use super::SimTarget;
+use super::{GdbTarget, GdbTargetError};
 
-impl SingleThreadSingleStep for SimTarget {
+impl SingleThreadSingleStep for GdbTarget {
     fn step(&mut self, _signal: Option<Signal>) -> Result<(), Self::Error> {
-        info!("single stepping");
-        self.execution_mode = ExecutionMode::Step;
-        Ok(())
+        self.send_command(Command::Step)
+            .map_err(|_| GdbTargetError::TargetGone)
     }
 }
 
-impl ReverseStep<()> for SimTarget {
+impl ReverseStep<()> for GdbTarget {
     fn reverse_step(&mut self, _tid: ()) -> Result<(), Self::Error> {
-        info!("reverse stepping");
-        self.execution_mode = ExecutionMode::StepBack;
-        Ok(())
+        self.send_command(Command::StepBack)
+            .map_err(|_| GdbTargetError::TargetGone)
     }
 }
 
-impl SingleThreadRangeStepping for SimTarget {
+impl SingleThreadRangeStepping for GdbTarget {
     fn resume_range_step(&mut self, start: u32, end: u32) -> Result<(), Self::Error> {
-        info!("range stepping");
-        self.execution_mode = ExecutionMode::RangeStep(start, end);
-        Ok(())
+        self.send_command(Command::RangeStep(start, end))
+            .map_err(|_| GdbTargetError::TargetGone)
     }
 }

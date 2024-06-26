@@ -1,26 +1,24 @@
-use std::io;
-use std::net::{TcpListener, TcpStream};
-
-use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
-use gdbstub::common::Signal;
-use gdbstub::conn::{Connection, ConnectionExt};
-use gdbstub::stub::SingleThreadStopReason;
-use gdbstub::stub::{run_blocking, DisconnectReason, GdbStub};
-use gdbstub::target::ext::base::reverse_exec::ReplayLogPosition;
-use gdbstub::target::Target;
-
 mod gdb;
 mod target;
+mod tcp;
+mod tui;
 
+use gdb::{run_server, GdbTarget};
+use gdbstub::stub::DisconnectReason;
 use goblin::elf::program_header::PT_LOAD;
-use log::{debug, info};
-use target::{Event, ExecutionMode, RunEvent, SimTarget};
+use log::{debug, info, warn};
+use target::{SharedTargetState, SimTarget};
 
 use clap::Parser;
 use red_planet_core::board::{Board, Config};
 use red_planet_core::simulator::SimulationAllocator;
 use std::fs::File;
-use stderrlog::LogLevelNum;
+use tcp::TcpStream;
+use tokio::net::TcpListener;
+use tokio::sync::mpsc::unbounded_channel;
+use tokio::sync::watch;
+use tokio::{runtime, spawn};
+use tui::{run_tui, TermSetupDropGard};
 
 type Simulator = red_planet_core::simulator::Simulator<Board<SimulationAllocator>>;
 
@@ -37,13 +35,19 @@ struct Args {
 }
 
 fn main() -> std::io::Result<()> {
+    let rt = runtime::Runtime::new()?;
+    rt.block_on(start())?;
+    rt.shutdown_background();
+    Ok(())
+}
+
+async fn start() -> std::io::Result<()> {
     let args = Args::parse();
 
-    stderrlog::new()
-        .verbosity(LogLevelNum::Warn)
-        .modules([module_path!(), "red_planet_core"])
-        .init()
-        .unwrap();
+    tui_logger::init_logger(log::LevelFilter::Trace).unwrap();
+    tui_logger::set_default_level(log::LevelFilter::Debug);
+    // tui_logger::set_level_for_target(module_path!(), log::LevelFilter::Trace);
+    // tui_logger::set_level_for_target("red_planet_core", log::LevelFilter::Trace);
 
     let mut buf = Vec::new();
 
@@ -51,9 +55,7 @@ fn main() -> std::io::Result<()> {
     let mut file = File::open(args.binary)?;
     file.read_to_end(&mut buf)?;
 
-    enable_raw_mode()?;
-
-    let simulator = Simulator::new(|allocator| {
+    let mut simulator = Simulator::new(|allocator| {
         let board = Board::new(allocator, Config::default());
         if args.elf {
             load_elf(&board, allocator, &buf).unwrap()
@@ -63,13 +65,28 @@ fn main() -> std::io::Result<()> {
         board
     });
 
+    let terminal_drop_gard = TermSetupDropGard::new().unwrap();
+
+    let (shared_state_sender, shared_state_receiver) = watch::channel(SharedTargetState::default());
+    let (uart_sender, uart_receiver) = unbounded_channel();
+
+    let (target, command_sender, event_receiver) =
+        SimTarget::new(&mut simulator, shared_state_sender, uart_receiver);
+
     if let Some(port) = args.gdb {
-        run_gdb(simulator, port);
+        let gdb_target = GdbTarget::new(command_sender.clone(), event_receiver);
+        spawn(run_gdb(gdb_target, port));
     } else {
-        run(simulator);
+        command_sender
+            .send(target::command::Command::Continue)
+            .unwrap();
     }
 
-    disable_raw_mode()?;
+    spawn(run_tui(command_sender, shared_state_receiver, uart_sender));
+
+    target.run(simulator).await;
+
+    drop(terminal_drop_gard);
 
     Ok(())
 }
@@ -105,116 +122,42 @@ fn load_elf(
     Ok(())
 }
 
-fn run(simulator: Simulator) {
-    let mut target = SimTarget::new(simulator);
-    target.execution_mode = ExecutionMode::Continue;
+async fn run_gdb(mut target: GdbTarget, port: u16) {
+    let connection = wait_for_gdb_connection(port).await.unwrap();
 
-    match target.run(|| false) {
-        RunEvent::Event(e) => println!("\r\n\r\ntarget stoped: {:?}\r\n", e),
-        RunEvent::IncomingData => unreachable!(),
-    }
-}
-
-fn run_gdb(simulator: Simulator, port: u16) {
-    let mut target = SimTarget::new(simulator);
-
-    let connection: TcpStream = wait_for_gdb_connection(port).unwrap();
-
-    let debugger = GdbStub::new(connection);
-
-    match debugger.run_blocking::<GdbBlockingEventLoop>(&mut target) {
+    match run_server(connection, &mut target).await {
         Ok(disconnect_reason) => match disconnect_reason {
             DisconnectReason::Disconnect => {
-                println!("Client disconnected")
+                warn!("Client disconnected")
             }
             DisconnectReason::TargetExited(code) => {
-                println!("Target exited with code {}", code)
+                warn!("Target exited with code {}", code)
             }
             DisconnectReason::TargetTerminated(sig) => {
-                println!("Target terminated with signal {}", sig)
+                warn!("Target terminated with signal {}", sig)
             }
-            DisconnectReason::Kill => println!("GDB sent a kill command"),
+            DisconnectReason::Kill => warn!("GDB sent a kill command"),
         },
-        Err(e) => {
-            if e.is_target_error() {
-                println!("target encountered a fatal error",)
-            } else if e.is_connection_error() {
-                let (e, kind) = e.into_connection_error().unwrap();
-                println!("connection error: {:?} - {}", kind, e,)
-            } else {
-                println!("gdbstub encountered a fatal error")
+        Err(e) => match e {
+            gdb::GdbError::Connection(e) => {
+                warn!("connection error: {e}")
             }
-        }
+            gdb::GdbError::Inner(e) => {
+                warn!("{e}")
+            }
+            gdb::GdbError::TargetThreadStoped => {
+                warn!("target encountered a fatal error")
+            }
+        },
     }
 }
 
-fn wait_for_gdb_connection(port: u16) -> io::Result<TcpStream> {
+async fn wait_for_gdb_connection(port: u16) -> tokio::io::Result<TcpStream> {
     let sockaddr = format!("localhost:{}", port);
     info!("Waiting for a GDB connection on {:?}...", sockaddr);
-    let sock = TcpListener::bind(sockaddr)?;
-    let (stream, addr) = sock.accept()?;
+    let sock = TcpListener::bind(sockaddr).await?;
+    let (stream, addr) = sock.accept().await?;
 
     info!("Debugger connected from {}", addr);
-    Ok(stream)
-}
-
-enum GdbBlockingEventLoop {}
-
-// The `run_blocking::BlockingEventLoop` groups together various callbacks
-// the `GdbStub::run_blocking` event loop requires you to implement.
-impl run_blocking::BlockingEventLoop for GdbBlockingEventLoop {
-    type Target = SimTarget;
-    type Connection = TcpStream;
-
-    type StopReason = SingleThreadStopReason<u32>;
-
-    // Invoked immediately after the target's `resume` method has been
-    // called. The implementation should block until either the target
-    // reports a stop reason, or if new data was sent over the connection.
-    fn wait_for_stop_reason(
-        target: &mut SimTarget,
-        conn: &mut Self::Connection,
-    ) -> Result<
-        run_blocking::Event<SingleThreadStopReason<u32>>,
-        run_blocking::WaitForStopReasonError<
-            <Self::Target as Target>::Error,
-            <Self::Connection as Connection>::Error,
-        >,
-    > {
-        let poll_incoming_data = || {
-            // gdbstub takes ownership of the underlying connection, so the `borrow_conn`
-            // method is used to borrow the underlying connection back from the stub to
-            // check for incoming data.
-            conn.peek().map(|b| b.is_some()).unwrap_or(true)
-        };
-
-        match target.run(poll_incoming_data) {
-            RunEvent::IncomingData => {
-                let byte = conn
-                    .read()
-                    .map_err(run_blocking::WaitForStopReasonError::Connection)?;
-                Ok(run_blocking::Event::IncomingData(byte))
-            }
-            RunEvent::Event(event) => {
-                let stop_reason = match event {
-                    Event::DoneStep => SingleThreadStopReason::DoneStep,
-                    Event::ReachedStart => SingleThreadStopReason::ReplayLog {
-                        tid: None,
-                        pos: ReplayLogPosition::Begin,
-                    },
-                    Event::PoweredDown => SingleThreadStopReason::DoneStep, //Terminated(Signal::SIGSTOP),
-                    Event::Break => SingleThreadStopReason::SwBreak(()),
-                };
-
-                Ok(run_blocking::Event::TargetStopped(stop_reason))
-            }
-        }
-    }
-
-    // Invoked when the GDB client sends a Ctrl-C interrupt.
-    fn on_interrupt(
-        _target: &mut SimTarget,
-    ) -> Result<Option<SingleThreadStopReason<u32>>, <SimTarget as Target>::Error> {
-        Ok(Some(SingleThreadStopReason::Signal(Signal::SIGINT)))
-    }
+    Ok(TcpStream(stream))
 }

@@ -27,8 +27,8 @@ macro_rules! access_fns {
 
             /// Perform a debug read for the specified address.
             ///
-            /// See [`Bus::read_debug`] for the difference between this method and its non-debug
-            /// counterpart.
+            /// See [`Bus::read_debug`](crate::bus::Bus::read_debug) for the difference between this
+            /// method and its non-debug counterpart.
             pub fn $read_debug_fn(&self, allocator: &A, address: u32) -> Result<$u, MemoryError> {
                 trace!("Debug reading {} from memory at vaddr {address:#010x}", stringify!($u));
                 let privilege_level = self.core.effective_privilege_mode(allocator);

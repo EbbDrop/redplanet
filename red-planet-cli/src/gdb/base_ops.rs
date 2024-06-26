@@ -6,67 +6,65 @@ use gdbstub::target::{
     TargetError, TargetResult,
 };
 use gdbstub_arch::riscv::reg::RiscvCoreRegs;
-use red_planet_core::registers::Specifier;
+use red_planet_core::registers::{Registers, Specifier};
 
-use crate::target::SimTarget;
+use crate::{
+    gdb::{GdbTarget, GdbTargetError},
+    target::command::Command,
+};
 
-impl SingleThreadBase for SimTarget {
+impl SingleThreadBase for GdbTarget {
+    fn support_resume(&mut self) -> Option<SingleThreadResumeOps<'_, Self>> {
+        Some(self)
+    }
+
     fn read_registers(&mut self, regs: &mut RiscvCoreRegs<u32>) -> TargetResult<(), Self> {
-        let (allocator, board) = self.simulator.inspect();
+        let (sender, reciver) = oneshot::channel();
+        self.send_command(Command::ReadRegisters(sender))?;
+        let registers = reciver
+            .recv()
+            .map_err(|_| TargetError::Fatal(GdbTargetError::NoAnswer))?;
 
-        let registers = board.core().registers(allocator);
-
-        for r in Specifier::iter_all() {
+        for r in red_planet_core::registers::Specifier::iter_all() {
             regs.x[usize::from(r)] = registers.x(r);
         }
-
         regs.pc = registers.pc();
-
         Ok(())
     }
 
     fn write_registers(&mut self, regs: &RiscvCoreRegs<u32>) -> TargetResult<(), Self> {
-        let regs = regs.clone();
-        self.simulator
-            .step_with("gdb write all registers", move |allocator, board| {
-                let registers = board.core().registers_mut(allocator);
-                for r in Specifier::iter_all() {
-                    registers.set_x(r, regs.x[usize::from(r)])
-                }
-                *registers.pc_mut() = regs.pc;
-            });
+        let mut registers = Registers::default();
+        for r in Specifier::iter_all() {
+            registers.set_x(r, regs.x[usize::from(r)])
+        }
+        *registers.pc_mut() = regs.pc;
 
-        Ok(())
+        self.send_command(Command::WriteRegisters(registers))
     }
 
     fn support_single_register_access(&mut self) -> Option<SingleRegisterAccessOps<'_, (), Self>> {
-        Some(self)
+        None
+        // Some(self)
     }
 
     fn read_addrs(&mut self, start_addr: u32, data: &mut [u8]) -> TargetResult<usize, Self> {
-        let (allocator, board) = self.simulator.inspect();
+        let (sender, reciver) = oneshot::channel();
+        self.send_command(Command::ReadAddrs(start_addr, data.len(), sender))?;
+        let r = reciver
+            .recv()
+            .map_err(|_| TargetError::Fatal(GdbTargetError::NoAnswer))??;
 
-        let memory = board.core().mmu();
-
-        match memory.read_range_debug(data, allocator, start_addr) {
-            Ok(()) => Ok(data.len()),
-            Err(_) => Err(TargetError::NonFatal),
-        }
+        data[..r.len()].clone_from_slice(&r);
+        Ok(r.len())
     }
 
     fn write_addrs(&mut self, start_addr: u32, data: &[u8]) -> TargetResult<(), Self> {
-        let data = data.to_owned();
-        let write_res = self
-            .simulator
-            .step_with("gdb write memory", move |allocator, board| {
-                let memory = board.core().mmu();
-                memory.write_range(allocator, start_addr, &data)
-            });
+        let (sender, reciver) = oneshot::channel();
+        self.send_command(Command::WriteAddrs(start_addr, data.to_owned(), sender))?;
 
-        write_res.map_err(|_| TargetError::NonFatal)
-    }
-
-    fn support_resume(&mut self) -> Option<SingleThreadResumeOps<'_, Self>> {
-        Some(self)
+        reciver
+            .recv()
+            .map_err(|_| TargetError::Fatal(GdbTargetError::NoAnswer))?
+            .map_err(|_| TargetError::NonFatal)
     }
 }

@@ -1,17 +1,19 @@
-use std::{
-    collections::HashSet,
-    io::{stdout, Write},
-    time::Duration,
-};
+pub mod command;
 
-use crossterm::{
-    cursor,
-    event::{poll, read},
-    style::Print,
-    terminal::Clear,
-    QueueableCommand,
+use std::collections::HashSet;
+
+use command::Command;
+use gdbstub::target::TargetError;
+use log::{error, info, trace};
+use red_planet_core::{
+    board::Board,
+    simulator::{SimulationAllocator, UndoStepStopReason},
+    Allocator, ArrayAccessor, ArrayAccessorMut,
 };
-use red_planet_core::{simulator::SimulationAllocator, Allocator, ArrayAccessor, ArrayAccessorMut};
+use tokio::sync::{
+    mpsc::{error::TryRecvError, unbounded_channel, UnboundedReceiver, UnboundedSender},
+    watch,
+};
 
 use crate::Simulator;
 
@@ -21,16 +23,17 @@ pub enum Event {
     PoweredDown,
     Break,
     ReachedStart,
+    Pause,
 }
 
 #[derive(Debug)]
-pub enum RunEvent {
+pub enum AdvanceResult {
     Event(Event),
-    IncomingData,
+    Continue,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ExecutionMode {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExecutionType {
     Step,
     StepBack,
     RangeStep(u32, u32),
@@ -38,47 +41,88 @@ pub enum ExecutionMode {
     ReverseContinue,
 }
 
-#[derive(Debug)]
-pub struct SimTarget {
-    pub simulator: Simulator,
-    pub breakpoints: HashSet<u32>,
-
-    pub execution_mode: ExecutionMode,
-
-    pub output_buffer: <SimulationAllocator as Allocator>::ArrayId<u8>,
-    pub output_buffer_len: <SimulationAllocator as Allocator>::Id<usize>,
-
-    pub last_output: Vec<u8>,
+#[derive(Debug, Default)]
+pub struct SharedTargetState {
+    pub output_buffer: Vec<u8>,
+    pub total_steps: usize,
+    pub current_step: usize,
+    pub state: Option<ExecutionType>,
 }
 
-fn read_from_term(buf: &mut [u8]) -> std::io::Result<usize> {
-    let mut size = 0;
-    loop {
-        if poll(Duration::from_millis(0))? {
-            // It's guaranteed that the `read()` won't block when the `poll()`
-            // function returns `true`
-            if let crossterm::event::Event::Key(event) = read()? {
-                match event.code {
-                    crossterm::event::KeyCode::Char(c) if c.is_ascii() => {
-                        let writen = (&mut buf[size..]).write(&[c as u8]).unwrap();
-                        size += writen;
-                        if writen == 0 {
-                            break;
-                        }
-                    }
-                    _ => {}
-                }
-            }
-        } else {
-            break;
+pub struct SimTarget {
+    command_channel: UnboundedReceiver<Command>,
+    event_channel: UnboundedSender<Event>,
+    uart_channel: UnboundedReceiver<u8>,
+
+    break_reasons: BreakReasons,
+
+    state: TargetState,
+
+    shared_state: watch::Sender<SharedTargetState>,
+}
+
+#[derive(Debug, Default)]
+struct BreakReasons {
+    breakpoints: HashSet<u32>,
+}
+
+impl BreakReasons {
+    fn should_break(
+        &self,
+        allocator: &SimulationAllocator,
+        board: &Board<SimulationAllocator>,
+    ) -> bool {
+        self.breakpoints
+            .contains(&board.core().registers(allocator).pc())
+    }
+}
+
+struct TargetState {
+    output_buffer: <SimulationAllocator as Allocator>::ArrayId<u8>,
+    output_buffer_len: <SimulationAllocator as Allocator>::Id<usize>,
+
+    execution_type: Option<ExecutionType>,
+}
+
+impl TargetState {
+    fn read_uart_output(&self, simulator: &Simulator, buf: &mut Vec<u8>) {
+        let allocator = simulator.allocator();
+        let Ok(len) = allocator.get(self.output_buffer_len) else {
+            // Went all the way to the start, clearing buffer
+            buf.clear();
+            return;
+        };
+        let output_buffer = allocator.get_array(self.output_buffer).unwrap();
+
+        buf.resize(*len, 0);
+
+        if !output_buffer.read(buf.as_mut_slice(), 0) {
+            error!("Failed to read into output buffer");
         }
     }
 
-    Ok(size)
+    fn write_to_shared_state(
+        &mut self,
+        simulator: &Simulator,
+        shared_state: &watch::Sender<SharedTargetState>,
+    ) {
+        shared_state.send_modify(|shared_state| {
+            self.read_uart_output(simulator, &mut shared_state.output_buffer);
+
+            shared_state.total_steps = simulator.available_steps();
+            shared_state.current_step = simulator.current_steps();
+
+            shared_state.state = self.execution_type;
+        })
+    }
 }
 
 impl SimTarget {
-    pub fn new(mut simulator: Simulator) -> Self {
+    pub fn new(
+        simulator: &mut Simulator,
+        shared_state: watch::Sender<SharedTargetState>,
+        uart_channel: UnboundedReceiver<u8>,
+    ) -> (Self, UnboundedSender<Command>, UnboundedReceiver<Event>) {
         let (output_buffer, output_buffer_len) =
             simulator.step_with("adding output buffer", |allocator, _| {
                 let output_buffer = allocator.insert_array(0, 1024);
@@ -86,104 +130,84 @@ impl SimTarget {
                 (output_buffer, output_buffer_len)
             });
 
-        Self {
-            simulator,
-            breakpoints: HashSet::new(),
-            execution_mode: ExecutionMode::Continue,
-            output_buffer,
-            output_buffer_len,
-            last_output: Vec::new(),
-        }
-    }
+        let (c_sender, c_receiver) = unbounded_channel();
+        let (e_sender, e_receiver) = unbounded_channel();
 
-    pub fn _reset(&mut self) {
-        self.simulator.step_with("reset board", |allocator, board| {
-            board.reset(allocator);
-        });
-    }
+        let target = Self {
+            command_channel: c_receiver,
+            event_channel: e_sender,
+            uart_channel,
 
-    pub fn write_to_output(&mut self) {
-        let (allocator, _) = self.simulator.inspect();
-        let Ok(len) = allocator.get(self.output_buffer_len) else {
-            return;
+            shared_state,
+
+            break_reasons: BreakReasons::default(),
+
+            state: TargetState {
+                output_buffer,
+                output_buffer_len,
+
+                execution_type: None,
+            },
         };
-        let output_buffer = allocator.get_array(self.output_buffer).unwrap();
-
-        let mut buf = vec![0; *len];
-        let _ = output_buffer.read(&mut buf, 0);
-
-        if self.last_output == buf {
-            return;
-        }
-
-        self.last_output = buf;
-
-        let mut stdout = stdout();
-        stdout.queue(cursor::MoveTo(0, 0)).ok();
-        stdout
-            .queue(Print(
-                String::from_utf8_lossy(&self.last_output).replace('\n', "\r\n"),
-            ))
-            .ok();
-        stdout
-            .queue(Clear(crossterm::terminal::ClearType::FromCursorDown))
-            .ok();
-
-        stdout.flush().ok();
+        (target, c_sender, e_receiver)
     }
 
-    pub fn com_with_uart(&mut self) {
-        let (allocator, board) = self.simulator.inspect();
+    fn com_with_uart(&mut self, simulator: &mut Simulator) {
+        let (allocator, board) = simulator.inspect();
 
         let pending_output_amount = board.uart0().pending_output_amount(allocator);
         let input_space = board.uart0().input_space(allocator);
 
         let input_buf = if input_space != 0 {
-            let mut buf = [0; 16];
-            let Ok(input_read) = read_from_term(&mut buf[..input_space]) else {
-                return;
-            };
-            buf[..input_read].to_owned()
+            let mut input_buf = Vec::new();
+            while let Ok(byte) = self.uart_channel.try_recv() {
+                input_buf.push(byte);
+                if input_buf.len() >= input_space {
+                    break;
+                }
+            }
+            input_buf
         } else {
             Vec::new()
         };
 
         if !input_buf.is_empty() || pending_output_amount != 0 {
-            let output_buffer = self.output_buffer;
-            let output_buffer_len = self.output_buffer_len;
+            let output_buffer = self.state.output_buffer;
+            let output_buffer_len = self.state.output_buffer_len;
 
-            self.simulator
-                .step_with("com with uart", move |allocator, board| {
-                    let output = board.uart0().push_and_read(allocator, &input_buf).1;
+            simulator.step_with("com with uart", move |allocator, board| {
+                let output = board.uart0().push_and_read(allocator, &input_buf).1;
 
-                    let Ok(len) = allocator.get(output_buffer_len) else {
-                        return;
-                    };
-                    let len = *len;
+                let Ok(len) = allocator.get(output_buffer_len) else {
+                    return;
+                };
+                let len = *len;
 
-                    let _ = allocator
-                        .get_array_mut(output_buffer)
-                        .unwrap()
-                        .write(len, &output);
+                trace!(
+                    "Updating output buffer to {}+{}={} bytes",
+                    len,
+                    output.len(),
+                    len + output.len()
+                );
+                let _ = allocator
+                    .get_array_mut(output_buffer)
+                    .unwrap()
+                    .write(len, &output);
 
-                    *allocator.get_mut(output_buffer_len).unwrap() += output.len();
-                });
+                *allocator.get_mut(output_buffer_len).unwrap() += output.len();
+            });
         }
     }
 
-    pub fn step(&mut self) -> Option<Event> {
-        if !self.simulator.redo_step() {
-            self.com_with_uart();
-            self.simulator.step();
+    fn step(&mut self, simulator: &mut Simulator) -> Option<Event> {
+        if !simulator.redo_step() {
+            self.com_with_uart(simulator);
+            simulator.step();
         }
-        self.write_to_output();
 
-        let (allocator, board) = self.simulator.inspect();
+        let (allocator, board) = simulator.inspect();
 
-        if self
-            .breakpoints
-            .contains(&board.core().registers(allocator).pc())
-        {
+        if self.break_reasons.should_break(allocator, board) {
             return Some(Event::Break);
         }
         if board.is_powered_down(allocator) {
@@ -192,17 +216,13 @@ impl SimTarget {
         None
     }
 
-    pub fn step_back(&mut self) -> Option<Event> {
-        if !self.simulator.undo_step() {
+    fn step_back(&mut self, simulator: &mut Simulator) -> Option<Event> {
+        if !simulator.undo_step() {
             return Some(Event::ReachedStart);
         }
-        self.write_to_output();
 
-        let (allocator, board) = self.simulator.inspect();
-        if self
-            .breakpoints
-            .contains(&board.core().registers(allocator).pc())
-        {
+        let (allocator, board) = simulator.inspect();
+        if self.break_reasons.should_break(allocator, board) {
             return Some(Event::Break);
         }
         if board.is_powered_down(allocator) {
@@ -211,62 +231,171 @@ impl SimTarget {
         None
     }
 
-    pub fn run(&mut self, mut poll_incoming_data: impl FnMut() -> bool) -> RunEvent {
-        match self.execution_mode {
-            ExecutionMode::Step => RunEvent::Event(self.step().unwrap_or(Event::DoneStep)),
-            ExecutionMode::StepBack => RunEvent::Event(self.step_back().unwrap_or(Event::DoneStep)),
-            ExecutionMode::Continue => {
-                let mut cycles = 0;
-                loop {
-                    if cycles % 1024 == 0 {
-                        // poll for incoming data
-                        if poll_incoming_data() {
-                            break RunEvent::IncomingData;
-                        }
-                    }
-                    cycles += 1;
-
-                    if let Some(event) = self.step() {
-                        break RunEvent::Event(event);
+    fn advance_sim(
+        &mut self,
+        execution_type: ExecutionType,
+        simulator: &mut Simulator,
+    ) -> AdvanceResult {
+        match execution_type {
+            ExecutionType::Step => {
+                AdvanceResult::Event(self.step(simulator).unwrap_or(Event::DoneStep))
+            }
+            ExecutionType::StepBack => {
+                AdvanceResult::Event(self.step_back(simulator).unwrap_or(Event::DoneStep))
+            }
+            ExecutionType::Continue => {
+                for _ in 0..1024 {
+                    if let Some(event) = self.step(simulator) {
+                        return AdvanceResult::Event(event);
                     };
                 }
+                AdvanceResult::Continue
             }
-            ExecutionMode::RangeStep(start, end) => {
-                let mut cycles = 0;
-                loop {
-                    if cycles % 1024 == 0 {
-                        // poll for incoming data
-                        if poll_incoming_data() {
-                            break RunEvent::IncomingData;
-                        }
-                    }
-                    cycles += 1;
-
-                    if let Some(event) = self.step() {
-                        break RunEvent::Event(event);
+            ExecutionType::RangeStep(start, end) => {
+                for _ in 0..1024 {
+                    if let Some(event) = self.step(simulator) {
+                        return AdvanceResult::Event(event);
                     };
 
-                    let (allocator, board) = self.simulator.inspect();
+                    let (allocator, board) = simulator.inspect();
 
                     if !(start..end).contains(&board.core().registers(allocator).pc()) {
-                        break RunEvent::Event(Event::DoneStep);
+                        return AdvanceResult::Event(Event::DoneStep);
                     }
                 }
+                AdvanceResult::Continue
             }
-            ExecutionMode::ReverseContinue => {
-                let mut cycles = 0;
-                loop {
-                    if cycles % 64 == 0 {
-                        // poll for incoming data
-                        if poll_incoming_data() {
-                            break RunEvent::IncomingData;
+            ExecutionType::ReverseContinue => {
+                // Using this var to only send a single true about the command channel, this way
+                // we can go as far back as possible if a command where to accrue.
+                let mut has_notified_about_command_channel = false;
+
+                let result = simulator.undo_steps_until(
+                    |allocator, board| {
+                        if self.break_reasons.should_break(allocator, board) {
+                            return Some(AdvanceResult::Event(Event::Break));
+                        }
+
+                        if !self.command_channel.is_empty() && !has_notified_about_command_channel {
+                            has_notified_about_command_channel = true;
+                            return Some(AdvanceResult::Continue);
+                        }
+
+                        None
+                    },
+                    |simulator| {
+                        self.state
+                            .write_to_shared_state(simulator, &self.shared_state);
+                    },
+                );
+
+                match result {
+                    UndoStepStopReason::ReachedStart => AdvanceResult::Event(Event::ReachedStart),
+                    UndoStepStopReason::Pred(result) => result,
+                }
+            }
+        }
+    }
+
+    pub fn execute_command(&mut self, command: Command, simulator: &mut Simulator) -> bool {
+        trace!("Got command: {}", &command);
+        match command {
+            Command::Exit => return true,
+            Command::Pause => {
+                self.state.execution_type = None;
+                let _ = self.event_channel.send(Event::Pause);
+            }
+            Command::Continue => self.state.execution_type = Some(ExecutionType::Continue),
+            Command::ReverseContinue => {
+                self.state.execution_type = Some(ExecutionType::ReverseContinue)
+            }
+            Command::Step => self.state.execution_type = Some(ExecutionType::Step),
+            Command::StepBack => self.state.execution_type = Some(ExecutionType::StepBack),
+            Command::RangeStep(s, e) => {
+                self.state.execution_type = Some(ExecutionType::RangeStep(s, e))
+            }
+            Command::AddBreakpoint(addr) => {
+                self.break_reasons.breakpoints.insert(addr);
+            }
+            Command::RemoveBreakpoint(addr) => {
+                self.break_reasons.breakpoints.remove(&addr);
+            }
+            Command::ReadRegisters(return_channel) => {
+                let (allocator, board) = simulator.inspect();
+
+                let registers = board.core().registers(allocator);
+
+                let _ = return_channel.send(registers.clone());
+            }
+            Command::WriteRegisters(registers) => {
+                simulator.step_with("write all registers", move |allocator, board| {
+                    *board.core().registers_mut(allocator) = registers.clone();
+                })
+            }
+            Command::ReadAddrs(addr, len, return_channel) => {
+                let (allocator, board) = simulator.inspect();
+
+                let memory = board.core().mmu();
+
+                let mut data = vec![0; len];
+                let result = match memory.read_range_debug(&mut data, allocator, addr) {
+                    Ok(()) => Ok(data),
+                    Err(_) => Err(TargetError::NonFatal),
+                };
+                let _ = return_channel.send(result);
+            }
+            Command::WriteAddrs(addr, data, return_channel) => {
+                let result = simulator.step_with("write data", move |allocator, board| {
+                    let memory = board.core().mmu();
+                    memory.write_range(allocator, addr, &data)
+                });
+                let _ = return_channel.send(result);
+            }
+        }
+        false
+    }
+
+    pub async fn run(mut self, mut simulator: Simulator) {
+        loop {
+            self.state
+                .write_to_shared_state(&simulator, &self.shared_state);
+            let Some(execution_type) = &self.state.execution_type else {
+                match self.command_channel.recv().await {
+                    Some(command) => {
+                        if self.execute_command(command, &mut simulator) {
+                            break;
                         }
                     }
-                    cycles += 1;
+                    None => {
+                        info!("All command channels droped, stoping target");
+                        break;
+                    }
+                }
+                continue;
+            };
 
-                    if let Some(event) = self.step_back() {
-                        break RunEvent::Event(event);
-                    };
+            let result = self.advance_sim(*execution_type, &mut simulator);
+            match result {
+                AdvanceResult::Event(e) => {
+                    log::info!("Target stoped due to {:?}", e);
+                    self.state.execution_type = None;
+                    let _ = self.event_channel.send(e);
+                }
+                AdvanceResult::Continue => {
+                    // Check if there have been any command in the meantime.
+                    let command = self.command_channel.try_recv();
+                    match command {
+                        Ok(command) => {
+                            if self.execute_command(command, &mut simulator) {
+                                break;
+                            }
+                        }
+                        Err(TryRecvError::Empty) => {}
+                        Err(TryRecvError::Disconnected) => {
+                            info!("All command channels droped, stoping target");
+                            break;
+                        }
+                    }
                 }
             }
         }

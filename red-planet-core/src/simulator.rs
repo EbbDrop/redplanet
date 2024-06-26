@@ -117,6 +117,12 @@ pub struct Simulator<S: Simulatable<SimulationAllocator>> {
     head: Head,
 }
 
+#[derive(Debug, Clone)]
+pub enum UndoStepStopReason<R> {
+    ReachedStart,
+    Pred(R),
+}
+
 impl<S: Simulatable<SimulationAllocator>> Simulator<S> {
     /// Create a new `Simulator` with a clear history and a [`Simulatable`] in reset state.
     ///
@@ -321,9 +327,11 @@ impl<S: Simulatable<SimulationAllocator>> Simulator<S> {
         true
     }
 
-    /// Revert the simulation to the most recent past state for which `pred` returns `true`.
-    /// Returns `false` if `pred` returned `false` for all states in the past, or if there are no
-    /// steps to undo.
+    /// Revert the simulation to the most recent past state for which `pred` returns `Some`.
+    /// Returns [`UndoStepStopReason::ReachedStart`] if `pred` returned None for all states
+    /// in the past, or if there are no steps to undo. Otherwise
+    /// [`UndoStepStopReason::Pred`] is returned with the value from `pred` that retuned `Some`
+    /// last in simulation time.
     ///
     /// Note that the "most recent past state" never includes the current state.
     ///
@@ -339,15 +347,15 @@ impl<S: Simulatable<SimulationAllocator>> Simulator<S> {
     /// for which `pred` returns `true`; which will also always be the last call to `visit`, since
     /// `visit` is called in reverse chronological order. Note that `visit` will be called between
     /// 1 and `n` times when `n` steps are eventually undone.
-    pub fn undo_steps_until(
+    pub fn undo_steps_until<R>(
         &mut self,
-        pred: impl Fn(&SimulationAllocator, &S) -> bool,
+        mut pred: impl FnMut(&SimulationAllocator, &S) -> Option<R>,
         mut visit: impl FnMut(&Self),
-    ) -> bool {
+    ) -> UndoStepStopReason<R> {
         if self.head.state_index.previous().is_none() {
             // Cannot undo when at the start of history
             trace!("Undoing steps in simulator while at the start of history; doing nothing");
-            return false;
+            return UndoStepStopReason::ReachedStart;
         }
 
         // If the current state is the newest AND dirty, then we need to save it, so it can be
@@ -371,16 +379,16 @@ impl<S: Simulatable<SimulationAllocator>> Simulator<S> {
             let end_state_index = top_state_index.previous().unwrap();
 
             let mut last_matched_state =
-                pred(&self.allocator, &self.simulatable).then_some(self.head.state_index);
+                pred(&self.allocator, &self.simulatable).map(|r| (self.head.state_index, r));
 
             for _ in end_state_index.steps_since(self.head.state_index) {
                 self.replay_step();
-                if pred(&self.allocator, &self.simulatable) {
-                    last_matched_state = Some(self.head.state_index);
+                if let Some(r) = pred(&self.allocator, &self.simulatable) {
+                    last_matched_state = Some((self.head.state_index, r));
                 }
             }
 
-            if let Some(state_index) = last_matched_state {
+            if let Some((state_index, r)) = last_matched_state {
                 if state_index < self.head.state_index {
                     self.go_to_snapshot(snapshot_index);
                 }
@@ -388,7 +396,7 @@ impl<S: Simulatable<SimulationAllocator>> Simulator<S> {
                     self.replay_step();
                 }
                 visit(self);
-                return true;
+                return UndoStepStopReason::Pred(r);
             }
 
             visit(self);
@@ -399,7 +407,7 @@ impl<S: Simulatable<SimulationAllocator>> Simulator<S> {
 
         // Reached the start of history, while `pred` still hasn't returned `true`.
         self.go_to_snapshot(0);
-        false
+        UndoStepStopReason::ReachedStart
     }
 
     /// Redo the last undone step. Returns `false` if there was nothing to redo.

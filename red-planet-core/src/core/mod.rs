@@ -7,7 +7,7 @@ pub mod csr;
 mod envcfg;
 mod execute;
 mod interrupts;
-mod mmu;
+pub mod mmu;
 mod status;
 mod trap;
 

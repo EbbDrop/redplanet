@@ -6,9 +6,9 @@ use gdbstub::{
     },
 };
 
-use crate::target::SimTarget;
+use crate::{gdb::GdbTarget, target::command::Command};
 
-impl Breakpoints for SimTarget {
+impl Breakpoints for GdbTarget {
     fn support_sw_breakpoint(&mut self) -> Option<SwBreakpointOps<'_, Self>> {
         Some(self)
     }
@@ -26,13 +26,13 @@ impl Breakpoints for SimTarget {
     }
 }
 
-impl SwBreakpoint for SimTarget {
+impl SwBreakpoint for GdbTarget {
     fn add_sw_breakpoint(
         &mut self,
         addr: u32,
         _kind: <Self::Arch as Arch>::BreakpointKind,
     ) -> TargetResult<bool, Self> {
-        self.breakpoints.insert(addr);
+        self.send_command(Command::AddBreakpoint(addr))?;
         Ok(true)
     }
 
@@ -41,18 +41,18 @@ impl SwBreakpoint for SimTarget {
         addr: u32,
         _kind: <Self::Arch as Arch>::BreakpointKind,
     ) -> TargetResult<bool, Self> {
-        self.breakpoints.remove(&addr);
+        self.send_command(Command::RemoveBreakpoint(addr))?;
         Ok(true)
     }
 }
 
-impl HwBreakpoint for SimTarget {
+impl HwBreakpoint for GdbTarget {
     fn add_hw_breakpoint(
         &mut self,
         addr: u32,
         _kind: <Self::Arch as Arch>::BreakpointKind,
     ) -> TargetResult<bool, Self> {
-        self.breakpoints.insert(addr);
+        self.send_command(Command::AddBreakpoint(addr))?;
         Ok(true)
     }
 
@@ -61,7 +61,7 @@ impl HwBreakpoint for SimTarget {
         addr: u32,
         _kind: <Self::Arch as Arch>::BreakpointKind,
     ) -> TargetResult<bool, Self> {
-        self.breakpoints.remove(&addr);
+        self.send_command(Command::RemoveBreakpoint(addr))?;
         Ok(true)
     }
 }

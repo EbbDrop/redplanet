@@ -8,14 +8,14 @@ use gdbstub::{
     },
 };
 
-use crate::target::ExecutionMode;
+use crate::target::command::Command;
 
-use super::SimTarget;
+use super::{GdbTarget, GdbTargetError};
 
-impl SingleThreadResume for SimTarget {
+impl SingleThreadResume for GdbTarget {
     fn resume(&mut self, _signal: Option<Signal>) -> Result<(), Self::Error> {
-        self.execution_mode = ExecutionMode::Continue;
-        Ok(())
+        self.send_command(Command::Continue)
+            .map_err(|_| GdbTargetError::TargetGone)
     }
 
     fn support_single_step(&mut self) -> Option<SingleThreadSingleStepOps<'_, Self>> {
@@ -35,9 +35,9 @@ impl SingleThreadResume for SimTarget {
     }
 }
 
-impl ReverseCont<()> for SimTarget {
+impl ReverseCont<()> for GdbTarget {
     fn reverse_cont(&mut self) -> Result<(), Self::Error> {
-        self.execution_mode = ExecutionMode::ReverseContinue;
-        Ok(())
+        self.send_command(Command::ReverseContinue)
+            .map_err(|_| GdbTargetError::TargetGone)
     }
 }
