@@ -1,0 +1,10 @@
+reset:
+  label: "0x1000"
+nmi:
+  label: "0x1000"
+mtime:
+  implemented: true
+  address: 0x2007ff8
+mtimecmp:
+  implemented: true
+  address: 0x2000000

@@ -1,0 +1,9 @@
+[package]
+name = "red-planet-test"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+clap = { version = "4.5.4", features = ["derive"] }
+goblin = "0.8.2"
+red-planet-core = { path = "../red-planet-core" }

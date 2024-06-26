@@ -1,0 +1,10 @@
+services:
+  test:
+    container_name: redplanet-test
+    build:
+      dockerfile: ./riscof-tests/Dockerfile
+    hostname: redplanet-test
+    user: "${UID?}:${GID?}"
+    command: make run
+    volumes:
+      - ./riscof-tests:/rp

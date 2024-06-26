@@ -462,6 +462,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "red-planet-test"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "goblin",
+ "red-planet-core",
+]
+
+[[package]]
 name = "redox_syscall"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
