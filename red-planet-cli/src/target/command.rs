@@ -20,11 +20,12 @@ pub enum Command {
     AddBreakpoint(u32),
     ReadRegisters(oneshot::Sender<Registers>),
     WriteRegisters(Registers),
+    ReadRegister(RiscvRegId<u32>, oneshot::Sender<u32>),
+    WriteRegister(RiscvRegId<u32>, Vec<u8>, oneshot::Sender<Result<(), ()>>),
     ReadAddrs(u32, usize, FailableReturnChannel<Vec<u8>>),
     WriteAddrs(u32, Vec<u8>, oneshot::Sender<Result<(), MemoryError>>),
     DeleteFuture,
     GoTo(usize),
-    ReadRegister(RiscvRegId<u32>, oneshot::Sender<u32>),
 }
 
 impl std::fmt::Display for Command {
@@ -40,6 +41,7 @@ impl std::fmt::Display for Command {
             Command::RemoveBreakpoint(_) => write!(f, "RemoveBreakpoint"),
             Command::AddBreakpoint(_) => write!(f, "AddBreakpoint"),
             Command::ReadRegisters(_) => write!(f, "ReadRegisters"),
+            Command::WriteRegister(_, _, _) => write!(f, "WriteRegister"),
             Command::ReadRegister(_, _) => write!(f, "ReadRegister"),
             Command::WriteRegisters(_) => write!(f, "WriteRegisters"),
             Command::ReadAddrs(_, _, _) => write!(f, "ReadAddrs"),

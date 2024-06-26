@@ -6,6 +6,8 @@ use std::io::Write;
 
 use crate::{gdb::GdbTarget, target::command::Command};
 
+use super::GdbTargetError;
+
 impl SingleRegisterAccess<()> for GdbTarget {
     fn read_register(
         &mut self,
@@ -24,9 +26,15 @@ impl SingleRegisterAccess<()> for GdbTarget {
     fn write_register(
         &mut self,
         _tid: (),
-        _reg_id: RiscvRegId<u32>,
-        _val: &[u8],
+        reg_id: RiscvRegId<u32>,
+        val: &[u8],
     ) -> TargetResult<(), Self> {
-        Err(TargetError::NonFatal)
+        let (sender, reciver) = oneshot::channel();
+        self.send_command(Command::WriteRegister(reg_id, val.to_owned(), sender))?;
+
+        reciver
+            .recv()
+            .map_err(|_| TargetError::Fatal(GdbTargetError::NoAnswer))?
+            .map_err(|_| TargetError::NonFatal)
     }
 }

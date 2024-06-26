@@ -323,6 +323,52 @@ impl SimTarget {
         }
     }
 
+    fn write_register(
+        &self,
+        reg_id: RiscvRegId<u32>,
+        val: Vec<u8>,
+        simulator: &mut Simulator,
+    ) -> Result<(), TargetError<()>> {
+        use std::io::Write;
+
+        simulator.step_with(
+            "gdb write single register",
+            move |allocator, board| match reg_id {
+                RiscvRegId::Gpr(i) => {
+                    let mut buf = [0u8; 4];
+                    buf.as_mut_slice().write_all(&val)?;
+                    let registers = board.core().registers_mut(allocator);
+                    registers.set_x(Specifier::new(i).unwrap(), u32::from_le_bytes(buf));
+                    Ok(())
+                }
+                RiscvRegId::Fpr(_) => todo!(),
+                RiscvRegId::Pc => {
+                    let mut buf = [0u8; 4];
+                    buf.as_mut_slice().write_all(&val)?;
+                    let registers = board.core().registers_mut(allocator);
+                    *registers.pc_mut() = u32::from_le_bytes(buf);
+                    Ok(())
+                }
+                RiscvRegId::Csr(specifier) => {
+                    let mut buf = [0u8; 4];
+                    buf.as_mut_slice().write_all(&val)?;
+                    board
+                        .core()
+                        .write_csr(
+                            allocator,
+                            specifier,
+                            board.core().privilege_mode(allocator),
+                            u32::from_le_bytes(buf),
+                            0xFFFF_FFFF,
+                        )
+                        .map_err(|_| TargetError::NonFatal)
+                }
+                RiscvRegId::Priv => todo!(),
+                _ => Err(TargetError::NonFatal),
+            },
+        )
+    }
+
     pub fn execute_command(&mut self, command: Command, simulator: &mut Simulator) -> bool {
         trace!("Got command: {}", &command);
         match command {
@@ -358,10 +404,14 @@ impl SimTarget {
                     *board.core().registers_mut(allocator) = registers.clone();
                 })
             }
-            Command::ReadRegister(register, return_channel) => {
-                if let Some(value) = self.read_register(register, simulator) {
+            Command::ReadRegister(reg_id, return_channel) => {
+                if let Some(value) = self.read_register(reg_id, simulator) {
                     let _ = return_channel.send(value);
                 }
+            }
+            Command::WriteRegister(reg_id, val, return_channel) => {
+                let _ = return_channel
+                    .send(self.write_register(reg_id, val, simulator).map_err(|_| ()));
             }
             Command::ReadAddrs(addr, len, return_channel) => {
                 let (allocator, board) = simulator.inspect();
