@@ -13,7 +13,7 @@ pub(super) struct Executor<'a, 'c, A: Allocator, B: SystemBus<A>> {
     pub core: &'c Core<A, B>,
 }
 
-impl<'a, 'c, A: Allocator, B: SystemBus<A>> Executor<'a, 'c, A, B> {
+impl<A: Allocator, B: SystemBus<A>> Executor<'_, '_, A, B> {
     /// Executes an `addi` instruction.
     ///
     /// Corresponds to the assembly instruction `addi dest src immediate`.

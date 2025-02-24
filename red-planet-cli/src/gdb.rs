@@ -150,7 +150,7 @@ pub async fn run_server(
                         }
                     }
                     event = target.event_receiver.recv() => {
-                        let event = event.ok_or_else(|| GdbError::TargetThreadStoped)?;
+                        let event = event.ok_or(GdbError::TargetThreadStoped)?;
                         let stop_reason = match event {
                             Event::DoneStep => SingleThreadStopReason::DoneStep,
                             Event::ReachedStart => SingleThreadStopReason::ReplayLog {

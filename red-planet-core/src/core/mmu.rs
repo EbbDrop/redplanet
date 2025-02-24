@@ -78,7 +78,7 @@ pub struct Mmu<'c, A: Allocator, B: SystemBus<A>> {
     pub(super) core: &'c Core<A, B>,
 }
 
-impl<'c, A: Allocator, B: SystemBus<A>> Mmu<'c, A, B> {
+impl<A: Allocator, B: SystemBus<A>> Mmu<'_, A, B> {
     pub fn read_byte(&self, allocator: &mut A, address: u32) -> Result<u8, MemoryError> {
         trace!("Reading byte from memory at vaddr {address:#010x}");
         let privilege_level = self.core.effective_privilege_mode(allocator);

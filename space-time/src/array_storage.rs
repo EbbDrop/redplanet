@@ -539,7 +539,7 @@ impl Instance {
         array_storage: &'a ArrayStorage<T>,
         index: u64,
         len: u64,
-    ) -> Option<impl Iterator<Item = &T> + '_> {
+    ) -> Option<impl Iterator<Item = &'a T> + 'a> {
         if index as u128 + len as u128 > self.len() as u128 {
             return None;
         }
